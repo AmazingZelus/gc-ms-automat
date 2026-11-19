@@ -49,18 +49,24 @@ const Plot = (() => {
     const pad = { l: 54, r: 12, t: 20, b: 30 + lanes * 2 };
     const X = (t) => pad.l + (t - m.t0) / (m.t1 - m.t0) * (w - pad.l - pad.r);
 
-    // This finds the y range of the visible data.
+    // This finds the y range: of all visible data, or (height "podle okna") only of
+    // the data inside the integration window [m.yFit], of the highlighted sample if any.
     let lo = Infinity, hi = -Infinity;
+    const [f0, f1] = m.yFit || [m.t0, m.t1];
     for (const tr of m.traces) {
+      if (m.yFit && m.highlight && tr.name !== m.highlight) continue;
       const ys = m.mode === "raw" ? tr.raw : tr.corr;
       for (let i = 0; i < tr.rt.length; i++) {
-        if (tr.rt[i] < m.t0 || tr.rt[i] > m.t1) continue;
+        if (tr.rt[i] < Math.max(m.t0, f0) || tr.rt[i] > Math.min(m.t1, f1)) continue;
         hi = Math.max(hi, ys[i]); lo = Math.min(lo, ys[i]);
         if (m.mode === "raw") lo = Math.min(lo, tr.baseline[i]);
       }
     }
     if (!isFinite(hi)) { lo = 0; hi = 1; }
     if (m.mode !== "raw") lo = Math.min(0, lo);
+    // Height zoom: the top of the axis is lowered by the factor (bottom stays), the
+    // time axis is not touched; everything above the top is simply cut off.
+    hi = lo + (hi - lo) / (m.yScale || 1);
     const span = (hi - lo) || 1; hi += span * 0.08; lo -= span * 0.02;
     const Y = (v) => h - pad.b - (v - lo) / (hi - lo) * (h - pad.t - pad.b);
 

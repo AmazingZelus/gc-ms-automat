@@ -12,7 +12,7 @@
   const state = {
     meta: [], params: {}, files: [], alkanes: [], table: null,
     sel: null, checked: new Set(), detail: null,
-    view: { centre: null, half: 0.4 }, highlight: null, split: null, drag: null, geom: null,
+    view: { centre: null, half: 0.4 }, yzoom: { scale: 1, fit: false }, highlight: null, split: null, drag: null, geom: null,
   };
 
   function say(id, text, kind) {
@@ -26,7 +26,9 @@
     const form = $("params"); form.innerHTML = "";
     const groups = new Map();
     for (const p of state.meta) { if (!groups.has(p.group)) groups.set(p.group, []); groups.get(p.group).push(p); }
-    for (const [group, items] of groups) {
+    // "Pokročilé" (advanced) always comes last, folded.
+    const ordered = [...groups].sort((a, b) => (a[0] === "Pokročilé") - (b[0] === "Pokročilé"));
+    for (const [group, items] of ordered) {
       const box = document.createElement(group === "Pokročilé" ? "details" : "fieldset");
       if (group === "Pokročilé") { box.className = "adv"; box.innerHTML = "<summary class='help'>Pokročilé</summary>"; }
       else box.innerHTML = `<legend>${esc(group)}</legend>`;
@@ -41,7 +43,7 @@
     const wrap = document.createElement("div");
     if (p.kind === "bool") {
       wrap.className = "check";
-      wrap.innerHTML = `<input id="${id}" type="checkbox"><label for="${id}">${esc(p.label)}<small>${esc(p.help)}</small></label>`;
+      wrap.innerHTML = `<input id="${id}" type="checkbox"><label for="${id}">${esc(p.label)}</label><small>${esc(p.help)}</small>`;
       wrap.querySelector("input").addEventListener("change", (e) => changed(p, e.target.checked));
     } else if (p.kind === "choice") {
       // A choice from a fixed list (e.g. the baseline under the peaks).
@@ -77,7 +79,23 @@
         if (Number.isFinite(v)) changed(p, v); else e.target.value = state.params[p.key];
       });
     }
+    addHelpToggle(wrap);
     return wrap;
+  }
+
+  // ---- This hides a parameter's explanation behind a small "?" button ----
+  function addHelpToggle(wrap) {
+    const small = wrap.querySelector("small"), label = wrap.querySelector("label");
+    if (!small || !label || !small.textContent.trim()) return;
+    small.hidden = true;
+    const btn = document.createElement("button");
+    btn.type = "button"; btn.className = "help-toggle"; btn.textContent = "?";
+    btn.title = "Vysvětlení"; btn.setAttribute("aria-expanded", "false");
+    btn.addEventListener("click", (e) => {
+      e.preventDefault(); e.stopPropagation();
+      small.hidden = !small.hidden; btn.setAttribute("aria-expanded", String(!small.hidden));
+    });
+    label.appendChild(btn);   // inside the label, so the form layout stays the same
   }
 
   // ---- This fills the form with the current values ----
@@ -282,7 +300,7 @@
   function renderTable() {
     const t = state.table, showHidden = $("show-hidden").checked;
     let html = `<thead><tr><th><span class="help">✓</span></th><th class="num">ID</th><th class="num">RT [min]</th><th class="num">RI</th>
-      <th>Top ionty m/z (rel. %)</th><th class="num">Shoda min.</th><th class="num">n (z ${t.names.length})</th><th>Poznámka</th>`;
+      <th>Top ionty m/z (rel. %)</th><th class="num" title="Nejhorší shoda spektra některého vzorku s referenčním spektrem řádku (1 = stejné spektrum)">Shoda spekter</th><th class="num">n (z ${t.names.length})</th><th>Poznámka</th>`;
     html += t.names.map((n) => `<th class="num">${esc(n)}</th>`).join("") + "</tr></thead><tbody>";
     for (const r of t.rows) {
       if (r.hidden && !showHidden) continue;
@@ -318,6 +336,7 @@
       updateSelection(); return;
     }
     state.sel = uid; state.view.centre = null; state.highlight = null; state.split = null; setSplitUi();
+    state.yzoom = { scale: 1, fit: false };
     document.querySelectorAll("#results tr.sel").forEach((x) => x.classList.remove("sel"));
     tr.classList.add("sel"); say("r-msg", "");
     loadDetail(true);
@@ -406,7 +425,7 @@
   // ---- This is the collapsible list of samples (click = highlight + its spectrum) ----
   function renderLegend() {
     const t = state.table, row = state.detail.row, styles = Plot.sampleStyles(t.names, t.groups);
-    $("legend-summary").textContent = `Vzorky (${t.names.length})` + (state.highlight ? ` · zvýrazněn ${state.highlight}` : "");
+    $("legend-summary").textContent = `Vzorky (${t.names.length})` + (state.highlight ? ` · zvýrazněn: ${state.highlight}` : "");
     const list = $("legend-list"); list.innerHTML = "";
     t.names.forEach((n, i) => {
       const c = row.cells[n];
@@ -443,7 +462,9 @@
     const traces = d.traces.map((tr, i) => Object.assign({ style: styles[i] }, tr));
     const own = state.drag && state.drag.win ? state.drag.win : d.window;
     state.geom = Plot.chromatogram($("chrom"), { t0: d.t0, t1: d.t1, mode: $("view-mode").value, traces,
-      highlight: state.highlight, windows: d.windows, own, split: state.split });
+      highlight: state.highlight, windows: d.windows, own, split: state.split,
+      yScale: state.yzoom.scale, yFit: state.yzoom.fit ? own : null });
+    $("yzoom-fit").classList.toggle("active", state.yzoom.fit);
   }
   $("view-mode").addEventListener("change", draw);
   window.addEventListener("resize", () => { if (state.detail) { draw(); Plot.spectrum($("spec-ref"), state.detail.spectrum); } });
@@ -462,12 +483,26 @@
   $("zoom-out").addEventListener("click", () => zoom(1.6));
   $("pan-left").addEventListener("click", () => { state.view.centre -= state.view.half * 0.5; loadDetail(false); });
   $("pan-right").addEventListener("click", () => { state.view.centre += state.view.half * 0.5; loadDetail(false); });
-  $("zoom-reset").addEventListener("click", () => loadDetail(true));
+  $("zoom-reset").addEventListener("click", () => { state.yzoom = { scale: 1, fit: false }; loadDetail(true); });
+
+  // ---- This is the height zoom: only the y axis changes, the time range stays ----
+  function yzoom(factor) {
+    state.yzoom.scale = Math.min(1000, Math.max(1, state.yzoom.scale * factor));
+    draw();
+  }
+  $("yzoom-in").addEventListener("click", () => yzoom(2));
+  $("yzoom-out").addEventListener("click", () => yzoom(0.5));
+  $("yzoom-fit").addEventListener("click", () => {
+    state.yzoom = { scale: 1, fit: !state.yzoom.fit };
+    draw();
+  });
+
   const chrom = $("chrom");
   chrom.addEventListener("wheel", (e) => {
     if (!state.geom) return;
     e.preventDefault();
-    zoom(e.deltaY > 0 ? 1.25 : 1 / 1.25, state.geom.tAt(localX(e)));
+    if (e.shiftKey) yzoom((e.deltaY || e.deltaX) > 0 ? 1 / 1.4 : 1.4);   // Shift + wheel = height
+    else zoom(e.deltaY > 0 ? 1.25 : 1 / 1.25, state.geom.tAt(localX(e)));
   }, { passive: false });
 
   // ---- This is dragging in the plot: move window edges, draw a new window, or set the split ----

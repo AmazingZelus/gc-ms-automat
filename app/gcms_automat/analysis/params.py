@@ -243,7 +243,7 @@ PARAMETERS: list[ParamInfo] = [
               "Pokročilé", minimum=3, maximum=11, step=0.5),
     ParamInfo("window_end_pct", "Konec okna píku", "% výšky",
               "Okno končí, kde signál klesne na toto % výšky píku nad baseline (1 % u Gaussova píku vynechá 0,4 % plochy), "
-              "nebo v údolí k sousednímu píku (kolmice).",
+              "nebo v údolí k sousednímu píku.",
               "Integrace", minimum=0.1, maximum=50, step=0.5),
     ParamInfo("window_end_noise_sigma", "Konec okna v šumu", "× šum (σ)",
               "… nebo kde signál zapadne do šumu (pod tento násobek σ šumu), podle toho, co nastane dřív.",
@@ -253,11 +253,14 @@ PARAMETERS: list[ParamInfo] = [
               "širokém hrbolu skončí u své paty. Nižší hodnota zachová delší ocasy chvostujících píků, "
               "ale může započítat hrbol pod píkem. 0 = vypnuto.", "Integrace", minimum=0, maximum=50, step=1),
     ParamInfo("integration_baseline", "Baseline pod píkem", "",
-              "Automaticky: od baseline, ale když pík (nebo shluk dotýkajících se píků) končí vysoko na hrbolu, "
-              "měří se nad spojnicí okrajů. Kolmice: vždy od společné baseline (hrbol se započítá do píků). "
-              "Spojnice: vždy nad spojnicí okrajů okna. Dotýkající se píky dělí kolmice v údolí.",
+              "Nad čím se měří plocha píku. Automaticky: nad společnou baseline celého chromatogramu, ale když "
+              "pík (nebo skupina dotýkajících se píků) končí vysoko na hrbolu, měří se nad spojnicí okrajů okna "
+              "(hrbol se nezapočítá). Společná baseline: vždy nad ní (hrbol se započítá do píků). Spojnice "
+              "okrajů: vždy nad přímkou mezi začátkem a koncem okna. Sousední dotýkající se píky se ve všech "
+              "režimech dělí svislou čarou v údolí mezi nimi.",
               "Integrace", kind="choice",
-              options=(("auto", "automaticky"), ("drop", "kolmice k baseline"), ("chord", "spojnice okrajů"))),
+              options=(("auto", "automaticky"), ("drop", "společná baseline (hrbol se započítá)"),
+                       ("chord", "spojnice okrajů okna"))),
     ParamInfo("integration_lift_factor", "Hrbol pod píkem: práh", "× úroveň konce",
               "Režim „automaticky“ změří pík nad spojnicí okrajů jen tehdy, když okraj okna leží výš než "
               "tento násobek úrovně konce okna (výchozí 5 = 5 % výšky píku). Jinak měří od baseline.",

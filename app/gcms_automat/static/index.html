@@ -39,9 +39,10 @@
         <label class="drop" id="drop" for="file-in">
           <input id="file-in" type="file" accept=".cdf,.CDF" multiple>
           <span><strong>Přetáhni sem .CDF soubory</strong> nebo klikni a vyber</span>
-          <span class="help">Vzorky i alkanový standard najednou. Export z ChemStationu: File → Export Data to AIA Format.
-            Paralelky se poznají podle posledního písmene: vzorek_1_a a vzorek_1_b → skupina vzorek_1.</span>
         </label>
+        <details class="hint"><summary>Nápověda</summary>
+          <p>Vzorky i alkanový standard najednou. Export z ChemStationu: File → Export Data to AIA Format.
+            Paralelky se poznají podle posledního písmene: vzorek_1_a a vzorek_1_b → skupina vzorek_1.</p></details>
         <div id="files" class="files"></div>
         <p id="load-status" class="status" role="status"></p>
       </section>
@@ -49,8 +50,9 @@
       <!-- This is the alkane table for retention indices. -->
       <section class="card">
         <h2><span class="num">2</span>Alkany pro RI</h2>
-        <p class="help">Najdou se samy v souborech s rolí „Alkany“ (zkontroluj je). Můžeš je přepsat, přidat,
-          nebo vložit tabulku (řádky „C10; 5,234“). RI se počítá lineárně (van den Dool &amp; Kratz, 1963).</p>
+        <details class="hint"><summary>Nápověda</summary>
+          <p>Najdou se samy v souborech s rolí „Alkany“ (zkontroluj je). Můžeš je přepsat, přidat,
+          nebo vložit tabulku (řádky „C10; 5,234“). RI se počítá lineárně (van den Dool &amp; Kratz, 1963).</p></details>
         <div id="alk-wrap"></div>
         <div class="row">
           <button id="alk-add" class="btn" type="button">Přidat alkan</button>
@@ -79,20 +81,27 @@
               <div class="row">
                 <label class="help" for="view-mode">Zobrazit</label>
                 <select id="view-mode"><option value="corr">TIC − baseline</option><option value="raw">TIC + baseline</option></select>
-                <span class="btn-group" role="group" aria-label="Zoom">
-                  <button id="zoom-in" class="btn btn-small" type="button" title="Přiblížit (nebo kolečko myši)">+</button>
-                  <button id="zoom-out" class="btn btn-small" type="button" title="Oddálit">−</button>
+                <span class="zoom-label">Čas</span>
+                <span class="btn-group" role="group" aria-label="Zoom v čase">
+                  <button id="zoom-in" class="btn btn-small" type="button" title="Užší časový rozsah (kolečko myši)">+</button>
+                  <button id="zoom-out" class="btn btn-small" type="button" title="Širší časový rozsah">−</button>
                   <button id="pan-left" class="btn btn-small" type="button" title="Posunout doleva">←</button>
                   <button id="pan-right" class="btn btn-small" type="button" title="Posunout doprava">→</button>
-                  <button id="zoom-reset" class="btn btn-small" type="button" title="Výchozí rozsah">↺</button>
                 </span>
+                <span class="zoom-label">Výška</span>
+                <span class="btn-group" role="group" aria-label="Zoom ve výšce">
+                  <button id="yzoom-in" class="btn btn-small" type="button" title="Zvětšit výšku (Shift + kolečko myši)">+</button>
+                  <button id="yzoom-out" class="btn btn-small" type="button" title="Zmenšit výšku">−</button>
+                  <button id="yzoom-fit" class="btn btn-small" type="button" title="Výška podle signálu v integračním okně">podle okna</button>
+                </span>
+                <button id="zoom-reset" class="btn btn-small" type="button" title="Výchozí rozsah času i výšky">↺</button>
               </div>
             </div>
             <canvas id="chrom" class="plot plot-chrom"
               aria-label="Chromatogramy kolem vybraného řádku. Táhni okraje modrého pole nebo vyznač nové okno."></canvas>
             <details id="legend" class="legend-box">
-              <summary id="legend-summary">Vzorky</summary>
-              <p class="help">Klikni na vzorek: zvýrazní se jeho chromatogram a vpravo se ukáže jeho spektrum.</p>
+              <summary><span class="legend-caret" aria-hidden="true"></span><span id="legend-summary">Vzorky</span>
+                <span class="legend-hint">klikni pro seznam: zvýrazni vzorek a ukaž jeho spektrum</span></summary>
               <div id="legend-list" class="legend-list"></div>
             </details>
             <div class="row">
@@ -109,10 +118,12 @@
                 <button id="s-cancel" class="btn btn-link" type="button">Zrušit</button>
               </span>
             </div>
-            <p class="help">Táhni okraje modrého pole, nebo tažením v grafu vyznač nové okno. Platí pro všechny vzorky,
-              kde má řádek plochu (posune se podle RT každého vzorku), a když je v seznamu „Vzorky“ jeden zvýrazněný,
-              jen pro něj. U sousedního řádku se okno ořízne. Čárkovaně = baseline, nad kterou se plocha měří.
-              Kolečko myši = zoom.</p>
+            <details class="hint"><summary>Nápověda k oknu a grafu</summary>
+              <p>Táhni okraje modrého pole, nebo tažením v grafu vyznač nové okno. Platí pro všechny vzorky,
+              kde má řádek plochu (okraje se posunou o stejný kus u každého vzorku), a když je v seznamu „Vzorky“ jeden
+              zvýrazněný, jen pro něj. U sousedního řádku se okno ořízne. Čárkovaně = baseline, nad kterou se plocha měří.</p>
+              <p>Kolečko myši = časový rozsah, Shift + kolečko = výška. „Výška podle okna“ roztáhne signál v integračním
+              okně na celou výšku grafu (čas zůstane), takže je hned vidět, jestli je tam pík, nebo jen placka.</p></details>
             <div class="spectra">
               <div><p class="help" id="spec-ref-title">Referenční spektrum</p><canvas id="spec-ref" class="plot plot-spec"></canvas></div>
               <div><p class="help" id="spec-sel-title">Vyber vzorek v seznamu „Vzorky“</p><canvas id="spec-sel" class="plot plot-spec"></canvas></div>
@@ -133,8 +144,10 @@
             <button id="undo" class="btn" type="button" disabled>Zpět</button>
             <label class="check-inline"><input id="show-hidden" type="checkbox"> Ukázat skryté</label>
           </div>
-          <p class="help">Klikni na řádek pro chromatogramy a spektrum; najetím na buňku uvidíš okno, S/N a shodu spektra.
-            Červeně podbarvené = špatná shoda spekter napříč vzorky. Kurzíva = dointegrováno, modře = ruční okno.</p>
+          <details class="hint"><summary>Nápověda k tabulce</summary>
+            <p>Klikni na řádek pro chromatogramy a spektrum; najetím na buňku uvidíš okno, S/N a shodu spektra.
+            „Shoda spekter“ = nejhorší shoda spektra některého vzorku s referenčním spektrem řádku (1 = stejné).
+            Červeně podbarvené = špatná shoda spekter napříč vzorky. Kurzíva = dointegrováno, modře = ruční okno.</p></details>
           <div class="scroll"><table id="results"></table></div>
         </div>
       </section>

@@ -61,7 +61,7 @@ Pokud zdroji nevěříte, zdrojový kód je celý veřejně v tomto repozitáři
 **Plochy** jsou v jednotkách *counts × s* (TIC po odečtení baseline, lichoběžníkové pravidlo) a nejsou přímo totožné s plochami z ChemStationu. Jak se integruje (nastavení *Integrace*):
 
 - Baseline celého chromatogramu: metoda arPLS (Baek a kol., 2015, Analyst 140, 250–257).
-- Okno píku končí, kde signál klesne skoro na baseline, kde se zploští (pík na širokém hrbolu), nebo v údolí k sousednímu píku. Sousední píky dělí kolmice v údolí.
+- Okno píku končí, kde signál klesne skoro na baseline, kde se zploští (pík na širokém hrbolu), nebo v údolí k sousednímu píku. Sousední píky se dělí svislou čarou v údolí mezi nimi.
 - Píky na širokém hrbolu se měří nad spojnicí svých okrajů, takže hrbol se jim nezapočítá. V grafu je ta baseline čárkovaně.
 - **Pozor u chvostujících píků:** s výchozím nastavením přijdou o 1–3 % ocasu. Pro takové látky sniž „Konec okna při zploštění“ (např. na 1 %) a zkontroluj okno v grafu.
 - **Pozor na malý pík těsně za velkým chvostujícím píkem:** zatím dostane i ocas velkého píku pod sebou (plocha až asi 2×). Zkontroluj ho v grafu. Lepší metoda („tangent skim“) přijde v další verzi.
