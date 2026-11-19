@@ -43,10 +43,11 @@ jobs:
       # This stops a release whose tag does not match the version in the code.
       - name: Check tag matches version
         if: startsWith(github.ref, 'refs/tags/')
+        env:
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          if ("${{ github.ref_name }}" -ne "v${{ steps.version.outputs.version }}") {
-            throw "Tag ${{ github.ref_name }} does not match version v${{ steps.version.outputs.version }}"
-          }
+          if ($env:TAG -ne "v$($env:VERSION)") { throw "Tag $($env:TAG) does not match version v$($env:VERSION)" }
 
       # This runs the unit tests on Windows with the exact locked libraries.
       - name: Unit tests
@@ -89,6 +90,7 @@ jobs:
   # checks that the artifact can be downloaded, so the release path is tested too.
   release:
     needs: build-windows
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -117,6 +119,7 @@ jobs:
             "SHA-256 ZIPu: \`${hash}\`" > notes.md
           if gh release view "$TAG" --repo "$REPO" > /dev/null 2>&1; then
             gh release upload "$TAG" dist/*.zip dist/*.sha256 --repo "$REPO" --clobber
+            gh release edit "$TAG" --repo "$REPO" --notes-file notes.md   # keep the hash in sync
           else
             gh release create "$TAG" dist/*.zip dist/*.sha256 --repo "$REPO" \
               --title "GC-MS Automat $TAG" --notes-file notes.md

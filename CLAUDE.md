@@ -65,6 +65,7 @@ Proč takto: Flask + waitress + čisté HTML/JS je nejjednodušší spolehlivá 
 
 - Prohlížeč může neaktivní kartu „uvolnit“ a poslat přitom stejný signál jako při zavření (`pagehide`). Server se pak za 8 s ukončí, i když karta v liště zůstala. Teď to ničemu nevadí, ale s načtenými daty by se ztratila práce. Ověřit na skutečných prohlížečích ve Windows (Edge spící karty, Chrome Memory Saver, Firefox tab unloading) a případně přidat ukládání stavu nebo potvrzení.
 - Při pádu prohlížeče nepřijde žádné rozloučení a server běží (s viditelným černým oknem) až 4 h. Je to záměrný kompromis, aby se aplikace neukončila uživateli, který pracuje v jiném programu.
+- Dočasné soubory: do `runtime/tmp` se přesměrovává jen `tempfile` hlavního procesu. Podprocesy (např. scikit-learn s `n_jobs>1`, externí převodníky) dostanou systémový `%TEMP%`. Až se budou používat, předej jim `env` s `TEMP`/`TMP` = `runtime\tmp` (prohlížeči ne). Obsah `runtime/tmp` se zatím nemaže.
 - Ukončení přes `os._exit` neřeší rozběhnuté požadavky. Až budou exporty velké, zapisuj nejdřív do dočasného souboru a pak ho přejmenuj, nebo před ukončením počkej na dokončení.
 
 ## Co jde ověřit jen na skutečném Windows
