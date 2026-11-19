@@ -71,6 +71,7 @@ class WindowRule:
     noise_sigma: float = 1.0
     slope_pct: float = 5.0
     baseline_mode: str = "auto"
+    lift_factor: float = 5.0
 
     def level(self, height: float, noise: float) -> float:
         """End level [counts]: max(end_pct % of the height, noise_sigma x noise)."""
@@ -204,7 +205,7 @@ def cluster_areas(trace: ProcessedTrace, windows: list[tuple[float, float]], rul
     Windows that touch (end of one = start of the next) form a cluster. Under a
     cluster a straight baseline runs from its start T0 to its end T1; inside, the
     peaks are separated by perpendicular drops at the shared edges. Line ends:
-        a = signal(T) if baseline_mode == "chord", or ("auto" and signal(T) > level)
+        a = signal(T) if baseline_mode == "chord", or ("auto" and signal(T) > lift_factor * level)
         a = 0         otherwise (= the common arPLS baseline)
     level = rule.level(highest point of the cluster, noise). So an isolated peak or
     a cluster that returns to the baseline is measured from the baseline, and one
@@ -227,7 +228,7 @@ def cluster_areas(trace: ProcessedTrace, windows: list[tuple[float, float]], rul
 
         def anchor(t: float) -> float:
             value = float(np.interp(t, rt, y))
-            if rule.baseline_mode == "chord" or (rule.baseline_mode == "auto" and value > level):
+            if rule.baseline_mode == "chord" or (rule.baseline_mode == "auto" and value > rule.lift_factor * level):
                 return value
             return 0.0
         a0, a1 = anchor(t_start), anchor(t_end)

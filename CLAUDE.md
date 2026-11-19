@@ -73,8 +73,10 @@ Proč takto: Flask + waitress + čisté HTML/JS je nejjednodušší spolehlivá 
 - **Šum (pro S/N)** se odhaduje z NEvyhlazeného signálu (raw − baseline); z vyhlazeného vychází asi poloviční.
 - **Okno píku** (jako klasický integrátor): od vrcholu na obě strany do PRVNÍHO z: signál < max(1 % výšky, 1 σ šumu); sklon < 5 % nejstrmějšího sklonu píku (pík na hrbolu skončí u své paty); údolí k sousednímu píku. Sousední okna se dotýkají v údolí, nikdy se nepřekrývají.
 - **Plocha** (`cluster_areas`): dotýkající se okna tvoří shluk; pod shlukem přímka od začátku do konce, v údolích kolmice. Režim „auto“: konce přímky na společné baseline, pokud shluk nekončí vysoko na hrbolu (pak na signálu). Ve všech ostatních místech se plochy přepočítávají přes `Analysis.reintegrate()` po každé úpravě.
-- **Známý kompromis** (parametr „Konec okna při zploštění“, výchozí 5 %): silně chvostující píky přijdou o část ocasu (EMG τ/σ 1,5 → −4 %, 5 → −8 %); s 0–1 % se ocas zachová, ale píky na hrbolech se nadhodnotí až 5×. Testy to hlídají (`test_tailing_peak_area_tradeoff_is_as_documented`).
-- **Neřešeno:** propady signálu pod baseline (výpadek detektoru) dělají falešné píky; saturovaný pík s plochým vrcholem se může rozpadnout na 2–3 řádky (ručně sloučit). Obojí je vidět v grafu.
+- Zvednutí baseline na hrbol v režimu „auto“ jen když okraj > 5× úroveň konce (parametr); běžné píky se tak měří přesně jako s kolmicemi (test `test_isolated_peaks_auto_baseline_has_no_extra_scatter`).
+- Smazané řádky zůstávají v geometrii shluku: smazání „šumu“ nemění plochy sousedů.
+- **Známý kompromis** (parametr „Konec okna při zploštění“, výchozí 5 %): chvostující píky přijdou o část ocasu (EMG τ/σ 1,5 / 3 / 5 → −1 / −2 / −3 %); s 0–1 % se ocas zachová, ale píky na hrbolech se nadhodnotí až 5×. Hlídá `test_tailing_peak_area_tradeoff_is_as_documented`.
+- **Neřešeno (příští verze):** malý pík na ocasu velkého chvostujícího píku dostane ocas pod sebou, tj. asi 2× svou plochu (chybí „tangent/exponential skim“; `test_small_peak_after_a_tailing_peak_is_a_known_limitation`). Propady signálu pod baseline (výpadek detektoru) dělají falešné píky. Saturovaný pík s plochým vrcholem se může rozpadnout na 2–3 řádky (ručně sloučit). Vše je vidět v grafu.
 - Práh výšky (% největšího píku) se počítá jen uvnitř vyhodnocovaného RT rozsahu.
 - **Alkany automaticky:** M⁺ po odečtení izotopu ¹³C fragmentu na 14n+1. Alkany se slabým M⁺ se NEodhadují, uživatel je doplní.
 - **Váhy shody spekter** (intenzita^0,5 × m/z^1): `TODO: ověřit zdroj` (Stein & Scott 1994).

@@ -59,11 +59,16 @@ class AnalysisParams:
     # whichever comes first. 1 sigma: below it the signal cannot be told from noise.
     window_end_noise_sigma: float = 1.0
     # ... or where the signal flattens (slope below this % of the peak's steepest slope).
-    # 5 %: a Gaussian ends at 2.9 sigma (as with 1 % height); peaks on broad humps end
+    # 5 %: a Gaussian ends at ~3 sigma (as with 1 % height); peaks on broad humps end
     # at their own foot (tests: areas within 0.99-1.13). Trade-off: tails of strongly
-    # tailing peaks are cut (EMG tau/sigma 1.5 -> -4 %, 5 -> -8 %); 1 % keeps tails
-    # (-0.7 %) but counts humps (up to 5x too large).
+    # tailing peaks are cut (EMG tau/sigma 1.5 / 3 / 5 -> -1 / -2 / -3 %); 1 % keeps
+    # tails but counts humps (up to 5x too large).
     window_end_slope_pct: float = 5.0
+    # "auto" baseline: lift the line end onto the signal only if the signal there is
+    # above this multiple of the end level (= 5 % of the height or 5 noise sigma at the
+    # defaults). 5: an ordinary peak ends at ~1 % and is never lifted (tests: no bias,
+    # scatter as with drop lines), a peak on a hump ends far higher (tens of %).
+    integration_lift_factor: float = 5.0
     # Baseline under the peaks: "auto" = common baseline unless the peak/cluster ends on
     # a hump; "drop" = always the common baseline; "chord" = always edge to edge.
     integration_baseline: str = "auto"
@@ -253,6 +258,10 @@ PARAMETERS: list[ParamInfo] = [
               "Spojnice: vždy nad spojnicí okrajů okna. Dotýkající se píky dělí kolmice v údolí.",
               "Integrace", kind="choice",
               options=(("auto", "automaticky"), ("drop", "kolmice k baseline"), ("chord", "spojnice okrajů"))),
+    ParamInfo("integration_lift_factor", "Hrbol pod píkem: práh", "× úroveň konce",
+              "Režim „automaticky“ změří pík nad spojnicí okrajů jen tehdy, když okraj okna leží výš než "
+              "tento násobek úrovně konce okna (výchozí 5 = 5 % výšky píku). Jinak měří od baseline.",
+              "Integrace", minimum=1, maximum=100, step=1),
     ParamInfo("spectrum_background_scans", "Pozadí spektra", "skenů",
               "Kolik skenů těsně před a za oknem se průměruje jako pozadí odečtené od spektra.",
               "Pokročilé", kind="int", minimum=0, maximum=50, step=1),

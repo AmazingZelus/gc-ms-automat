@@ -102,8 +102,8 @@ class Analysis:
         self.names = [r.name for r in runs]
         self.data = {r.name: RunData(r, process_trace(r.rt_min, r.tic(), params.baseline_log_lambda,
                                                       params.smooth_points)) for r in runs}
-        self.rule = WindowRule(params.window_end_pct, params.window_end_noise_sigma,
-                               params.window_end_slope_pct, params.integration_baseline)
+        self.rule = WindowRule(params.window_end_pct, params.window_end_noise_sigma, params.window_end_slope_pct,
+                               params.integration_baseline, params.integration_lift_factor)
         self.rows: list[Row] = []
         self.stats: dict[str, int] = {}
         self._undo: list[tuple[list[Row], int, str]] = []
@@ -168,9 +168,14 @@ class Analysis:
                 hits.append(row)
         return hits
 
-    def clip_to_free(self, name: str, t0: float, t1: float, exclude: list[Row]) -> tuple[float, float]:
-        """Shrink [t0, t1] so it does not overlap other rows' windows in that run."""
-        centre = (t0 + t1) / 2
+    def clip_to_free(self, name: str, t0: float, t1: float, exclude: list[Row],
+                     keep: float | None = None) -> tuple[float, float]:
+        """Shrink [t0, t1] so it does not overlap other rows' windows in that run.
+
+        `keep` [min]: the time that must stay inside (the row's own apex); by default
+        the window centre. A neighbour left of it cuts the start, right of it the end.
+        """
+        centre = (t0 + t1) / 2 if keep is None else keep
         for row in self.overlaps(name, t0, t1, exclude):
             c = row.cells[name]
             middle = c.apex_rt if math.isfinite(c.apex_rt) else (c.t0 + c.t1) / 2
@@ -186,10 +191,12 @@ class Analysis:
         Called after the computation and after every edit, so the area of a peak
         always follows the integrator rule for its current neighbours.
         """
+        # Deleted rows stay part of the cluster geometry, so marking a row as noise
+        # never changes the areas of its neighbours (its own area is just not shown).
         for name in self.names:
             trace = self.data[name].trace
-            live = [(r, r.cells[name]) for r in self.rows if not r.deleted
-                    and r.cells[name].has_window and r.cells[name].area is not None]
+            live = [(r, r.cells[name]) for r in self.rows
+                    if r.cells[name].has_window and r.cells[name].area is not None]
             lines: list = []
             areas = cluster_areas(trace, [(c.t0, c.t1) for _, c in live], self.rule, lines)
             for (row, cell), area, (b0, b1) in zip(live, areas, lines):
@@ -354,8 +361,8 @@ class Analysis:
     def set_window(self, uid: int, t0: float, t1: float, samples: list[str] | None = None) -> tuple[Row, list[str]]:
         """Use the window [t0, t1] for the row; returns (row, runs where it was clipped).
 
-        samples=None: every run where the row has an area, each shifted by that run's
-        own retention shift (apex - row RT), so drifting runs keep the peak inside.
+        samples=None: every run where the row has an area; each run's window edges move
+        by the same amounts as the edges of the shown median window.
         samples=[...]: only those runs, exactly [t0, t1] (window of one sample).
         In every run the window is clipped at neighbouring rows' windows (it may
         touch them, never overlap); refused if nothing is left in some run.
@@ -372,13 +379,22 @@ class Analysis:
             targets = [n for n in self.names if row.cells[n].has_window]
         if not targets:
             raise EditError("Řádek nemá žádnou plochu. Použij „Integrovat i v ND“.")
-        # This computes each run's window (shifted, then clipped at the neighbours).
+        # This computes each run's window: the start and end move by the same amount
+        # as the start and end of the window the user sees (the median window), so
+        # moving only one edge moves only that edge; then clipped at the neighbours,
+        # always keeping the row's own apex in that run.
+        shown = self.consensus_window(row)
         windows, clipped = {}, []
         for n in targets:
             c = row.cells[n]
-            shift = (c.apex_rt - row.rt) if (not samples and math.isfinite(c.apex_rt) and math.isfinite(row.rt)) else 0.0
-            a, b = t0 + shift, t1 + shift
-            ca, cb = self.clip_to_free(n, a, b, exclude=[row])
+            if samples or not c.has_window:
+                a, b = t0, t1
+            else:
+                a, b = c.t0 + (t0 - shown[0]), c.t1 + (t1 - shown[1])
+            if not b > a:
+                raise EditError(f"Okno nepoužito: ve vzorku {n} by bylo prázdné.")
+            keep = c.apex_rt if (math.isfinite(c.apex_rt) and a < c.apex_rt < b) else None
+            ca, cb = self.clip_to_free(n, a, b, exclude=[row], keep=keep)
             if not cb > ca + EPS:
                 raise EditError(f"Okno nepoužito: ve vzorku {n} je celé obsazené sousedním řádkem.")
             if ca > a + EPS or cb < b - EPS:

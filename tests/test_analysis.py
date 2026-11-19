@@ -91,15 +91,44 @@ def test_peaks_on_a_broad_hump_get_their_own_area():
         assert row_near(analysis, 10.3).cells["h"].area == pytest.approx(gaussian_area(3000, SIGMA, C), rel=0.15)
 
 
-def test_tailing_peak_area_tradeoff_is_as_documented():
-    # Documented trade-off of the 5 % slope end (params.py): a tailing EMG peak with
-    # tau/sigma = 1.5 loses about 4 % of its tail, with the slope end off (0) ~0 %.
-    run = make_run("e", [(B, 5.0, 1e6, SIGMA, 0.03)], baseline=5000, noise=50)
-    default = row_near(Analysis([run], [], params()), 5.0, tol=0.05).cells["e"].area
-    no_slope = row_near(Analysis([run], [], params(window_end_slope_pct=0)), 5.0, tol=0.05).cells["e"].area
-    expected = gaussian_area(1e6, SIGMA, B)
-    assert default / expected == pytest.approx(0.956, abs=0.02)
-    assert no_slope / expected == pytest.approx(1.0, abs=0.01)
+@pytest.mark.parametrize("tau,expected_ratio", [(0.03, 0.99), (0.06, 0.98), (0.1, 0.97)])
+def test_tailing_peak_area_tradeoff_is_as_documented(tau, expected_ratio):
+    # Documented trade-off of the 5 % slope end (params.py): tailing EMG peaks with
+    # tau/sigma 1.5 / 3 / 5 lose about 1 / 2 / 3 % of the tail; tolerance 1 %.
+    run = make_run("e", [(B, 5.0, 1e6, SIGMA, tau)], baseline=5000, noise=50)
+    area = row_near(Analysis([run], [], params()), 5.0, tol=0.05).cells["e"].area
+    assert area / gaussian_area(1e6, SIGMA, B) == pytest.approx(expected_ratio, abs=0.01)
+
+
+def test_isolated_peaks_auto_baseline_has_no_extra_scatter():
+    # "auto" must behave like drop lines for ordinary isolated peaks (reviewer: the
+    # line was lifted at random, -0.7 % bias and 1.5-3x the scatter).
+    for seed in range(20):
+        run = make_run("s", [(A, 3.0, 4000.0, 0.017)], seed=seed)
+        auto = row_near(Analysis([run], [], params()), 3.0).cells["s"].area
+        drop = row_near(Analysis([run], [], params(integration_baseline="drop")), 3.0).cells["s"].area
+        assert auto == pytest.approx(drop, rel=1e-9)
+
+
+def test_deleting_a_row_does_not_change_its_neighbours():
+    # Three touching peaks; marking the small middle one as noise must not change
+    # the areas of the outer two (reviewer: -13 % before).
+    runs = [make_run("s", [(A, 5.0, 1e5, SIGMA), (C, 5.09, 2e4, SIGMA), (B, 5.18, 1e5, SIGMA)])]
+    analysis = Analysis(runs, [], params())
+    a, b = row_near(analysis, 5.0), row_near(analysis, 5.18)
+    before = (a.cells["s"].area, b.cells["s"].area)
+    analysis.set_deleted(row_near(analysis, 5.09).uid, True)
+    assert (a.cells["s"].area, b.cells["s"].area) == pytest.approx(before, rel=1e-12)
+
+
+def test_small_peak_after_a_tailing_peak_is_a_known_limitation():
+    # KNOWN LIMITATION (CLAUDE.md): a small peak sitting on the tail of a big tailing
+    # peak gets the tail under it (perpendicular drop; no tangent skim yet): ~2x its
+    # true area. This test documents the size of the error; when a skim method is
+    # added, change it to require the true area.
+    run = make_run("e", [(B, 5.0, 1e6, SIGMA, 0.06), (A, 5.2, 5e4, SIGMA)], baseline=5000, noise=50)
+    small = row_near(Analysis([run], [], params()), 5.2, tol=0.03).cells["e"].area
+    assert 1.5 < small / gaussian_area(5e4, SIGMA, A) < 2.5
 
 
 def test_small_peak_next_to_a_big_one():
@@ -273,15 +302,34 @@ def test_window_over_a_neighbour_is_clipped_and_inside_it_refused():
         analysis.set_window(b.uid, 5.14, 5.16)
 
 
-def test_window_follows_each_runs_retention_shift():
-    # Runs shifted by 0, +0.01, -0.01 min: a window drawn around the mean RT is moved
-    # by each run's own shift, so every run keeps the whole peak (same area as before).
+def test_window_edges_move_like_the_shown_window():
+    # Runs shifted by 0, +0.01, -0.01 min. Widening the shown (median) window on both
+    # sides widens each run's own window: every run keeps the whole peak.
     analysis = Analysis(three_runs(), [], params())
     a = row_near(analysis, 3.0)
     before = {n: c.area for n, c in a.cells.items()}
-    analysis.set_window(a.uid, a.rt - 0.1, a.rt + 0.1)
+    t0, t1 = analysis.consensus_window(a)
+    analysis.set_window(a.uid, t0 - 0.05, t1 + 0.05)
     for n, c in row_near(analysis, 3.0).cells.items():
         assert c.area == pytest.approx(before[n], rel=0.01)
+    # Moving only the right edge leaves every run's left edge where it was.
+    starts = {n: c.t0 for n, c in row_near(analysis, 3.0).cells.items()}
+    t0, t1 = analysis.consensus_window(row_near(analysis, 3.0))
+    analysis.set_window(a.uid, t0, t1 + 0.005)
+    assert {n: c.t0 for n, c in row_near(analysis, 3.0).cells.items()} == pytest.approx(starts)
+
+
+def test_wide_window_over_neighbour_keeps_own_peak_in_every_run():
+    # Reviewer case: a wide window over the neighbour C must be clipped on C's side in
+    # EVERY run (the run with -0.01 min shift used to keep the wrong side: area 354).
+    analysis = Analysis(three_runs(), [], params())
+    b = row_near(analysis, 5.0)
+    before = {n: c.area for n, c in b.cells.items()}
+    t0, t1 = analysis.consensus_window(b)
+    analysis.set_window(b.uid, t0 - 0.1, t1 + 0.35)
+    for n, c in row_near(analysis, 5.0).cells.items():
+        assert c.area == pytest.approx(before[n], rel=0.02)
+    assert analysis.overlap_problems() == []
 
 
 def test_window_for_one_sample_only():
