@@ -22,6 +22,7 @@ from . import APP_NAME, __version__
 from .export import CSV_FORMATS, DEFAULT_CSV_FORMAT, library_versions, make_test_table, write_csv_export
 from .lifecycle import ClientTracker
 from .paths import EXPORTS_DIR, STATIC_DIR
+from .session import Session
 
 # This policy tells the browser: load scripts, styles, images and data ONLY from
 # this local server. Any accidental link to a CDN or the internet is blocked.
@@ -32,9 +33,14 @@ CONTENT_SECURITY_POLICY = (
 )
 
 
-def create_app(token: str, tracker: ClientTracker, port: int, exports_dir=EXPORTS_DIR) -> Flask:
+def create_app(token: str, tracker: ClientTracker, port: int, exports_dir=EXPORTS_DIR,
+               session: Session | None = None) -> Flask:
     """Build the Flask application."""
     app = Flask(__name__, static_folder=None)
+    # Uploads of many .CDF files at once (a 46-min run is ~2 MB): limit 2 GB.
+    app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 ** 3
+    from .api_analysis import create_blueprint
+    app.register_blueprint(create_blueprint(session or Session()))
     allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
 
     # ---- This checks every request: correct Host, and the token for the API ----

@@ -39,6 +39,20 @@ assert np.allclose(fit.params, [1.0, 2.0])
 assert np.isclose(LinearRegression().fit(x.reshape(-1, 1), y).coef_[0], 2.0)
 assert np.isclose(scipy.stats.norm.cdf(0.0), 0.5)
 print('libraries OK', np.__version__, scipy.__version__, pd.__version__, sklearn.__version__)
+# The app's own pipeline: write a synthetic .CDF, read it back, find the peak and its area.
+import math, os, tempfile
+from gcms_automat.analysis.cdf import read_cdf, write_cdf
+from gcms_automat.analysis.params import AnalysisParams
+from gcms_automat.analysis.table import Analysis
+rt = np.arange(0, 6, 0.35 / 60); rng = np.random.default_rng(0)
+g = 1e5 * np.exp(-0.5 * ((rt - 3.0) / 0.02) ** 2)          # base ion 57, height 1e5, sigma 0.02 min
+scans = [(np.array([40.0, 43.0, 57.0]), np.array([1000 + rng.normal(0, 20), 0.6 * v, v])) for v in g]
+path = os.path.join(tempfile.mkdtemp(), 'x.CDF'); write_cdf(path, rt, scans)
+a = Analysis([read_cdf(open(path, 'rb').read(), 'x')], [], AnalysisParams())
+area = [r for r in a.rows if abs(r.rt - 3.0) < 0.01][0].cells['x'].area
+expected = 1e5 * 1.6 * 0.02 * math.sqrt(2 * math.pi) * 60   # H * S * sigma * sqrt(2 pi) * 60
+assert abs(area / expected - 1) < 0.02, (area, expected)
+print('pipeline OK, area ratio', round(area / expected, 4))
 "@
 & $python -c $check
 if ($LASTEXITCODE -ne 0) { Fail "library check failed" }

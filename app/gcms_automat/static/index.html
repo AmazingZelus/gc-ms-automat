@@ -17,46 +17,133 @@
     </div>
     <button id="btn-quit" class="btn btn-quiet" type="button">Ukončit</button>
   </header>
+  <div id="offline-banner" class="banner banner-error" role="alert" hidden></div>
 
-  <main>
-    <!-- This is the message shown when the server is no longer running. -->
-    <div id="offline-banner" class="banner banner-error" role="alert" hidden></div>
-
-    <!-- This is the demo card with the "Export test" button. -->
-    <section class="card">
-      <h1>Kostra aplikace</h1>
-      <p class="muted">
-        Zatím bez zpracování dat. Tlačítko níže ověří, že export funguje:
-        uloží malé CSV se známými hodnotami (x, x², x/2) a s hlavičkou
-        (název aplikace, verze, datum a čas zpracování).
-      </p>
-
-      <!-- This is a user setting with a default value and an explanation. -->
-      <label class="field">
-        <span class="field-label">Formát CSV</span>
-        <select id="csv-format"></select>
-        <span class="field-help">
-          Výchozí „Excel (česky)“ se správně otevře v české verzi Excelu.
-          „Mezinárodní“ zvolte pro Python, R nebo anglický Excel.
-        </span>
-      </label>
-
-      <div class="actions">
-        <button id="btn-export" class="btn btn-primary" type="button">Export test</button>
-        <button id="btn-open-folder" class="btn" type="button">Otevřít složku s exporty</button>
+  <div class="layout">
+    <!-- This is the settings rail (the form is generated from /api/params-meta). -->
+    <aside class="card rail">
+      <h2><span class="num">3</span>Nastavení</h2>
+      <form id="params" novalidate></form>
+      <div class="row">
+        <button id="run" class="btn btn-primary" type="button" disabled>Vyhodnotit</button>
+        <button id="reset" class="btn btn-link" type="button">Výchozí hodnoty</button>
       </div>
-      <p id="export-result" class="result" role="status"></p>
-    </section>
+      <p id="dirty" class="warn-text" hidden>Soubory nebo nastavení se změnily. Klikni na Vyhodnotit.</p>
+      <p id="run-status" class="status" role="status"></p>
+    </aside>
 
-    <!-- This shows versions of Python and the scientific libraries (for citing). -->
-    <section class="card">
-      <h2>O aplikaci</h2>
-      <p class="muted">Verze knihoven se zapisují i do každého exportu.</p>
-      <ul id="lib-versions" class="versions"></ul>
-      <p class="muted small">Exporty se ukládají do: <code id="exports-dir">…</code></p>
-    </section>
-  </main>
+    <main class="stack">
+      <!-- This is where .CDF files are loaded. -->
+      <section class="card">
+        <h2><span class="num">1</span>Soubory</h2>
+        <label class="drop" id="drop" for="file-in">
+          <input id="file-in" type="file" accept=".cdf,.CDF" multiple>
+          <span><strong>Přetáhni sem .CDF soubory</strong> nebo klikni a vyber</span>
+          <span class="help">Vzorky i alkanový standard najednou. Export z ChemStationu: File → Export Data to AIA Format.
+            Paralelky se poznají podle posledního písmene: vzorek_1_a a vzorek_1_b → skupina vzorek_1.</span>
+        </label>
+        <div id="files" class="files"></div>
+        <p id="load-status" class="status" role="status"></p>
+      </section>
+
+      <!-- This is the alkane table for retention indices. -->
+      <section class="card">
+        <h2><span class="num">2</span>Alkany pro RI</h2>
+        <p class="help">Najdou se samy v souborech s rolí „Alkany“ (zkontroluj je). Můžeš je přepsat, přidat,
+          nebo vložit tabulku (řádky „C10; 5,234“). RI se počítá lineárně (van den Dool &amp; Kratz, 1963).</p>
+        <div id="alk-wrap"></div>
+        <div class="row">
+          <button id="alk-add" class="btn" type="button">Přidat alkan</button>
+          <button id="alk-auto" class="btn" type="button">Najít automaticky</button>
+          <button id="alk-import-toggle" class="btn" type="button">Vložit tabulku…</button>
+        </div>
+        <div id="alk-import" class="stack-s" hidden>
+          <textarea id="alk-text" rows="5" placeholder="C10;4,567&#10;C11;6,012&#10;C12;7,431"></textarea>
+          <div class="row"><button id="alk-import-ok" class="btn btn-primary" type="button">Načíst</button></div>
+        </div>
+        <p id="alk-status" class="status" role="status"></p>
+      </section>
+
+      <!-- This is the result: summary, detail of the selected row, table. -->
+      <section class="card">
+        <h2><span class="num">4</span>Výsledek</h2>
+        <div id="res-empty" class="empty">Po nahrání vzorků a kliknutí na Vyhodnotit tu bude tabulka:
+          jeden řádek = jedna látka, sloupce = plochy v jednotlivých záznamech (ND = nenalezeno).</div>
+        <div id="res-body" class="stack" hidden>
+          <div id="summary" class="summary"></div>
+
+          <!-- This is the detail of the selected row (chromatograms + spectra). -->
+          <div id="detail" class="card inner" hidden>
+            <div class="row spread">
+              <h3 id="det-title"></h3>
+              <div class="row">
+                <label class="help" for="view-mode">Zobrazit</label>
+                <select id="view-mode"><option value="corr">TIC − baseline</option><option value="raw">TIC + baseline</option></select>
+                <span class="btn-group" role="group" aria-label="Zoom">
+                  <button id="zoom-in" class="btn btn-small" type="button" title="Přiblížit (nebo kolečko myši)">+</button>
+                  <button id="zoom-out" class="btn btn-small" type="button" title="Oddálit">−</button>
+                  <button id="pan-left" class="btn btn-small" type="button" title="Posunout doleva">←</button>
+                  <button id="pan-right" class="btn btn-small" type="button" title="Posunout doprava">→</button>
+                  <button id="zoom-reset" class="btn btn-small" type="button" title="Výchozí rozsah">↺</button>
+                </span>
+              </div>
+            </div>
+            <canvas id="chrom" class="plot plot-chrom"
+              aria-label="Chromatogramy kolem vybraného řádku. Táhni okraje modrého pole nebo vyznač nové okno."></canvas>
+            <details id="legend" class="legend-box">
+              <summary id="legend-summary">Vzorky</summary>
+              <p class="help">Klikni na vzorek: zvýrazní se jeho chromatogram a vpravo se ukáže jeho spektrum.</p>
+              <div id="legend-list" class="legend-list"></div>
+            </details>
+            <div class="row">
+              <span class="help">Okno integrace</span>
+              <input id="w-start" class="num-input" type="number" step="0.001" aria-label="Začátek okna [min]">
+              <span class="help">–</span>
+              <input id="w-end" class="num-input" type="number" step="0.001" aria-label="Konec okna [min]">
+              <span class="help">min</span>
+              <button id="w-apply" class="btn" type="button">Použít okno</button>
+              <button id="s-start" class="btn" type="button">Rozdělit pík…</button>
+              <span id="s-controls" class="row" hidden>
+                <span class="help">v</span><input id="s-at" class="num-input" type="number" step="0.001" aria-label="Místo rozdělení [min]">
+                <button id="s-ok" class="btn btn-primary" type="button">Rozdělit</button>
+                <button id="s-cancel" class="btn btn-link" type="button">Zrušit</button>
+              </span>
+            </div>
+            <p class="help">Táhni okraje modrého pole, nebo tažením v grafu vyznač nové okno (platí pro všechny vzorky,
+              kde má řádek plochu). Okno se nesmí překrývat s oknem jiného řádku. Kolečko myši = zoom.</p>
+            <div class="spectra">
+              <div><p class="help" id="spec-ref-title">Referenční spektrum</p><canvas id="spec-ref" class="plot plot-spec"></canvas></div>
+              <div><p class="help" id="spec-sel-title">Vyber vzorek v seznamu „Vzorky“</p><canvas id="spec-sel" class="plot plot-spec"></canvas></div>
+            </div>
+            <div class="row">
+              <button id="r-fill" class="btn" type="button">Integrovat i v ND</button>
+              <button id="r-delete" class="btn" type="button">Smazat řádek (šum)</button>
+              <label class="help" for="r-note">Poznámka</label>
+              <input id="r-note" class="note-input" type="text" maxlength="500" placeholder="vlastní poznámka, Enter uloží">
+            </div>
+            <p id="r-msg" class="status" role="status"></p>
+          </div>
+
+          <!-- This is the toolbar above the table. -->
+          <div class="row toolbar">
+            <span id="sel-info" class="help">Zaškrtni řádky pro sloučení.</span>
+            <button id="merge" class="btn" type="button" disabled>Sloučit vybrané</button>
+            <button id="undo" class="btn" type="button" disabled>Zpět</button>
+            <label class="check-inline"><input id="show-hidden" type="checkbox"> Ukázat skryté</label>
+          </div>
+          <p class="help">Klikni na řádek pro chromatogramy a spektrum; najetím na buňku uvidíš okno, S/N a shodu spektra.
+            Červeně podbarvené = špatná shoda spekter napříč vzorky. Kurzíva = dointegrováno, modře = ruční okno.</p>
+          <div class="scroll"><table id="results"></table></div>
+        </div>
+      </section>
+
+      <!-- This shows versions of Python and the scientific libraries (for citing). -->
+      <p class="help small">Knihovny: <span id="lib-versions">…</span></p>
+    </main>
+  </div>
 
   <script src="/static/app.js"></script>
+  <script src="/static/plot.js"></script>
+  <script src="/static/analysis.js"></script>
 </body>
 </html>

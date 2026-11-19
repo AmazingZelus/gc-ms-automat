@@ -152,8 +152,9 @@ def main() -> int:
     # if the browser does not open by itself. The key is only valid for this run.
     log.info("Aplikace běží. Pokud se prohlížeč neotevře sám, zkopírujte do něj adresu:")
     log.info("  %s", url)
-    log.info("Toto okno nezavírejte. Aplikace se ukončí sama po zavření prohlížeče "
-             "nebo tlačítkem Ukončit.")
+    log.info("Tohle okno patří k aplikaci: běží v něm její výpočetní část a zobrazí se tu")
+    log.info("případné chybové hlášky. Nechte ho otevřené, zavře se samo po ukončení aplikace")
+    log.info("(tlačítkem Ukončit nebo zavřením okna prohlížeče).")
     # This opens the default web browser shortly after the server is ready.
     if open_browser:
         threading.Timer(0.5, webbrowser.open, args=(url,)).start()

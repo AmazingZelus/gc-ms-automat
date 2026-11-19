@@ -1,4 +1,5 @@
-// User interface logic. Plain JavaScript, no external libraries (works offline).
+// App shell: API helper, connection to the local server, version, quit button.
+// Plain JavaScript, no external libraries (works offline).
 "use strict";
 
 // ---- This reads the secret token from the address and creates a tab id ----
@@ -9,13 +10,15 @@ const HEARTBEAT_INTERVAL_MS = 5000;
 let serverGone = false;     // true = this tab can never work again (quit or old key)
 let infoLoaded = false;
 
-// ---- This is a helper for calling the local API ----
+// ---- This is a helper for calling the local API (JSON in, JSON out) ----
 async function api(path, body) {
-  const options = {
-    method: body === undefined ? "GET" : "POST",
-    headers: { "X-App-Token": TOKEN, "Content-Type": "application/json" },
-  };
-  if (body !== undefined) options.body = JSON.stringify(body);
+  const options = { method: body === undefined ? "GET" : "POST", headers: { "X-App-Token": TOKEN } };
+  if (body instanceof FormData) {
+    options.body = body;                       // file upload (browser sets the content type)
+  } else if (body !== undefined) {
+    options.headers["Content-Type"] = "application/json";
+    options.body = JSON.stringify(body);
+  }
   const response = await fetch(path, options);
   let data = {};
   try { data = await response.json(); } catch (e) { /* not JSON */ }
@@ -28,11 +31,12 @@ async function api(path, body) {
 }
 
 // ---- This shows or hides the "app is not running" banner ----
+// While shown, the whole page is greyed out and cannot be clicked.
 function setBanner(text) {
   const banner = document.getElementById("offline-banner");
   banner.hidden = !text;
   if (text) banner.textContent = text;
-  document.querySelectorAll("button, select").forEach((el) => { el.disabled = Boolean(text); });
+  document.body.classList.toggle("offline", Boolean(text));
 }
 
 // ---- This marks the tab as permanently unusable (after Ukončit or with an old key) ----
@@ -78,45 +82,8 @@ async function loadInfo() {
   document.title = info.app + " v" + info.version;
   document.getElementById("app-name").textContent = info.app;
   document.getElementById("app-version").textContent = "verze " + info.version;
-  document.getElementById("exports-dir").textContent = info.exports_dir;
-
-  const select = document.getElementById("csv-format");
-  info.csv_formats.forEach((fmt) => {
-    const option = document.createElement("option");
-    option.value = fmt.key;
-    option.textContent = fmt.label;
-    option.selected = fmt.key === info.default_csv_format;
-    select.appendChild(option);
-  });
-
-  const list = document.getElementById("lib-versions");
   const rows = [["Python", info.python]].concat(Object.entries(info.libraries));
-  rows.forEach(([name, version]) => {
-    const item = document.createElement("li");
-    item.textContent = name + " " + version;
-    list.appendChild(item);
-  });
-}
-
-// ---- This is the "Export test" button ----
-async function onExportClick() {
-  const result = document.getElementById("export-result");
-  result.className = "result";
-  result.textContent = "Ukládám…";
-  try {
-    const data = await api("/api/export-test", { csv_format: document.getElementById("csv-format").value });
-    result.classList.add("ok");
-    result.textContent = "Uloženo: " + data.path;
-  } catch (e) {
-    result.classList.add("error");
-    result.textContent = "Export se nepodařil: " + e.message;
-  }
-}
-
-// ---- This is the "Otevřít složku s exporty" button ----
-async function onOpenFolderClick() {
-  try { await api("/api/open-exports", {}); }
-  catch (e) { alert("Složku nelze otevřít: " + e.message); }
+  document.getElementById("lib-versions").textContent = rows.map(([n, v]) => n + " " + v).join(" · ");
 }
 
 // ---- This is the "Ukončit" button ----
@@ -126,8 +93,6 @@ async function onQuitClick() {
 }
 
 // ---- This wires everything together when the page loads ----
-document.getElementById("btn-export").addEventListener("click", onExportClick);
-document.getElementById("btn-open-folder").addEventListener("click", onOpenFolderClick);
 document.getElementById("btn-quit").addEventListener("click", onQuitClick);
 window.addEventListener("pagehide", sayGoodbye);
 // If the browser restores this page from its cache (Back button), reconnect at once.
@@ -135,5 +100,6 @@ window.addEventListener("pageshow", (event) => { if (event.persisted) sendHeartb
 // When the user comes back to this tab (e.g. after sleep), check the connection at once.
 document.addEventListener("visibilitychange", () => { if (!document.hidden) sendHeartbeat(); });
 
+window.App = { api };
 sendHeartbeat();
 setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);

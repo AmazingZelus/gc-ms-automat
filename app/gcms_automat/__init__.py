@@ -4,4 +4,4 @@
 # Everything else (UI, exports, build script, release check) reads them from here.
 # Use semantic versioning: MAJOR.MINOR.PATCH (the git tag is "v" + __version__).
 APP_NAME = "GC-MS Automat"
-__version__ = "0.1.0"
+__version__ = "0.2.0"

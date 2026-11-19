@@ -19,7 +19,13 @@ app/gcms_automat/server.py    Flask: UI + JSON API (/api/...), CSP, kontrola tok
 app/gcms_automat/lifecycle.py kdy se server ukončí (heartbeat, zavření karty, Ukončit)
 app/gcms_automat/export.py    VŠECHNY exporty jdou přes write_csv_export() (hlavička s verzí)
 app/gcms_automat/paths.py     složky; vše se zapisuje jen do složky aplikace
-app/gcms_automat/static/      HTML/JS/CSS – vše lokálně, žádné CDN
+app/gcms_automat/analysis/    VÝPOČTY (bez webového kódu): cdf.py čtení AIA, signal.py baseline/píky/integrace,
+                              spectra.py spektra a shoda, align.py zarovnání, retention.py RI a alkany,
+                              table.py tabulka + ruční úpravy (žádné překryvy oken!), params.py VŠECHNY parametry
+app/gcms_automat/session.py   stav aplikace (soubory, alkany, parametry, výsledek) + JSON pro UI
+app/gcms_automat/api_analysis.py  JSON API výpočtu (/api/files, /api/run, /api/edit, …)
+app/gcms_automat/static/      HTML/JS/CSS – vše lokálně, žádné CDN (plot.js = vlastní kreslení na canvas)
+tests/synthetic.py            syntetické běhy se známými píky (Gauss: plocha = H·S·σ·√(2π)·60)
 tools/build_portable.py       sestavení ZIPu (embeddable Python + zamčené balíčky)
 tools/smoke_test.ps1          test hotového ZIPu na Windows (spouští ho CI)
 requirements/runtime.in       přímé závislosti → tools/make_lock.py → runtime.lock.txt (s hashi)
@@ -60,6 +66,13 @@ Proč takto: Flask + waitress + čisté HTML/JS je nejjednodušší spolehlivá 
 1. Zvyš `__version__` v `app/gcms_automat/__init__.py` (MAJOR.MINOR.PATCH).
 2. Commit a push do `main`. Počkej, až CI projde.
 3. `git tag vX.Y.Z && git push origin vX.Y.Z`. CI ověří, že tag odpovídá verzi, sestaví a otestuje ZIP a vytvoří GitHub Release.
+
+## Poznámky k metodě (aktuální stav)
+
+- Baseline: dvouprůchodová (klouzavé minimum + medián → najít jasné píky → pod nimi lineárně proložit → klouzavý průměr). Jednoduché klouzavé minimum leží na spodním okraji šumu a nadhodnocovalo malé píky (test: až o 70 %).
+- Šum (pro S/N) se odhaduje z NEvyhlazeného signálu; z vyhlazeného vychází asi poloviční.
+- Okno píku: do 5 % prominence, max. 3 pološířky (HWHM) od vrcholu, nikdy přes minimum k sousednímu píku.
+- Váhy shody spekter (intenzita^0,5 × m/z^1): `TODO: ověřit zdroj` (Stein & Scott 1994).
 
 ## Známá omezení ukončování (vyřešit, než aplikace začne držet data v paměti)
 

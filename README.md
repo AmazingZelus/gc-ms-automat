@@ -2,7 +2,7 @@
 
 Aplikace pro zpracování dat z GC-MS. Běží na vašem počítači, **nic se neinstaluje** a **funguje úplně bez internetu**. Ovládá se v prohlížeči, ale data nikam neodcházejí.
 
-> **Stav:** verze 0.1 je zatím jen kostra aplikace. Umí jen zkušební export, zpracování dat přibude v dalších verzích.
+> **Stav (verze 0.2):** načtení CDF, zarovnání píků, integrace, RI a tabulka výsledků s ručními úpravami. Export do Excelu přijde ve verzi 0.3.
 
 ## Co potřebujete
 
@@ -47,12 +47,18 @@ Pokud zdroji nevěříte, zdrojový kód je celý veřejně v tomto repozitáři
 
 ## 5. Práce s aplikací
 
-- **Verze** programu je vidět nahoře vedle názvu.
-- **Export test** uloží zkušební CSV soubor do složky **`exporty`** uvnitř složky aplikace. Tlačítko **Otevřít složku s exporty** ji otevře.
-- **Formát CSV:**
-  - **Excel (česky)** (výchozí): oddělovač `;` a desetinná čárka. Správně se otevře v české verzi Excelu.
-  - **Mezinárodní**: oddělovač `,` a desetinná tečka. Pro Python, R nebo anglický Excel.
-- Každý export začíná hlavičkou (řádky začínající `#`): název aplikace, verze, datum a čas zpracování a verze použitých knihoven. Ve výsledcích tak vždy dohledáte, čím a kdy vznikly.
+1. **Soubory:** přetáhni do okna `.CDF` soubory (z ChemStationu: *File → Export Data to AIA Format*), vzorky i alkanový standard najednou. Soubor s „alk“ v názvu dostane roli *Alkany*, ostatní *Vzorek*. Roli můžeš změnit.
+   - **Paralelky** se poznají podle posledního písmene za podtržítkem: `vzorek_1_a` a `vzorek_1_b` patří do skupiny `vzorek_1`.
+2. **Alkany:** najdou se samy v souborech alkanů. Zkontroluj je, případně je přepiš, nebo vlož tabulku (řádky `C10; 4,567`). Bez alkanů se RI nepočítá.
+3. **Nastavení:** každý parametr má výchozí hodnotu a vysvětlení. Parametry výpočtu se projeví po kliknutí na **Vyhodnotit**. Parametry v části *Zobrazení tabulky* (skrytí podle základního iontu, malých píků, N největších, zvýraznění špatné shody) platí hned a nikdy nemění vypočtená čísla.
+4. **Tabulka:** ID, RT, RI, top ionty, nejhorší shoda spekter (červeně podbarvené = špatná), n (v kolika vzorcích je plocha), poznámka a plochy ve vzorcích. Najetím na buňku uvidíš okno integrace, S/N a shodu spektra.
+5. **Detail řádku** (klikni na řádek):
+   - chromatogramy všech vzorků kolem píku; kolečko myši nebo tlačítka + − ← → mění rozsah,
+   - seznam **Vzorky**: klik zvýrazní chromatogram vzorku a ukáže jeho spektrum vedle referenčního,
+   - **ruční úpravy:** tažení okna integrace, *Rozdělit pík* (vzniknou řádky `5_1` a `5_2`), *Sloučit vybrané* (zaškrtávátka v tabulce), *Integrovat i v ND*, *Smazat řádek*, vlastní poznámka. Tlačítko **Zpět** vrací poslední úpravu.
+   - Okna integrace různých řádků se v jednom vzorku nikdy nepřekrývají. Úpravu, která by překryv způsobila, aplikace odmítne a napíše proč.
+
+**Plochy** jsou v jednotkách *counts × s* (TIC po odečtení baseline, lichoběžníkové pravidlo) a nejsou přímo totožné s plochami z ChemStationu.
 
 ## 6. Ukončení
 

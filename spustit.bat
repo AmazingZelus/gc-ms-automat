@@ -18,7 +18,9 @@ set "PYTHONNOUSERSITE=1"
 set "PYTHONUTF8=1"
 
 title GC-MS Automat
-echo Spoustim GC-MS Automat... Toto okno nezavirejte, zavre se samo.
+echo Spoustim GC-MS Automat...
+echo Toto okno patri k aplikaci a zobrazi se v nem pripadne chyby.
+echo Nechte ho otevrene, zavre se samo po ukonceni aplikace.
 echo.
 
 rem This starts the application and waits until it ends.
