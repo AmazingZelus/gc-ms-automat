@@ -1,0 +1,3 @@
+# Only for development and tests (not included in the portable ZIP).
+-r runtime.in
+pytest==9.2.0

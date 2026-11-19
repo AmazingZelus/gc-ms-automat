@@ -1,0 +1,62 @@
+/* Styles for the local UI. System fonts only (no downloaded web fonts). */
+
+/* ---- This defines colours and basic page layout ---- */
+:root {
+  --bg: #f6f7f9;
+  --card: #ffffff;
+  --text: #1d2330;
+  --muted: #5b6475;
+  --border: #dde1e8;
+  --primary: #1f6feb;
+  --primary-text: #ffffff;
+  --ok: #1a7f37;
+  --error: #b42318;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+main { max-width: 820px; margin: 24px auto; padding: 0 16px; }
+code { font-family: Consolas, "Cascadia Mono", monospace; font-size: 0.92em; word-break: break-all; }
+
+/* ---- This is the top bar ---- */
+.topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 20px; background: var(--card); border-bottom: 1px solid var(--border);
+}
+.brand .name { font-weight: 600; font-size: 17px; }
+.brand .version { margin-left: 10px; color: var(--muted); font-size: 13px; }
+
+/* ---- This styles cards, form fields and buttons ---- */
+.card {
+  background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+  padding: 20px 24px; margin-bottom: 16px;
+}
+h1 { font-size: 20px; margin: 0 0 6px; }
+h2 { font-size: 16px; margin: 0 0 6px; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.field { display: grid; gap: 4px; margin: 16px 0; }
+.field-label { font-weight: 600; }
+.field-help { color: var(--muted); font-size: 13px; }
+select { font: inherit; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; max-width: 100%; }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.btn {
+  font: inherit; padding: 8px 16px; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--border); background: var(--card); color: var(--text);
+}
+.btn:hover:not(:disabled) { border-color: var(--muted); }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.btn-primary { background: var(--primary); border-color: var(--primary); color: var(--primary-text); }
+.btn-quiet { font-size: 14px; padding: 6px 12px; }
+
+/* ---- This styles result messages, the offline banner and the version list ---- */
+.result { min-height: 1.5em; margin: 12px 0 0; word-break: break-all; }
+.result.ok { color: var(--ok); }
+.result.error { color: var(--error); }
+.banner { padding: 12px 16px; border-radius: 8px; margin-bottom: 16px; }
+.banner-error { background: #fdecea; color: var(--error); border: 1px solid #f5c2bd; }
+.versions { columns: 2; padding-left: 18px; margin: 8px 0; font-family: Consolas, monospace; font-size: 13px; }

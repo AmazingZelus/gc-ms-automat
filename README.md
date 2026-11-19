@@ -1,1 +1,87 @@
-# gc-ms-automat
+# GC-MS Automat
+
+Aplikace pro zpracování dat z GC-MS. Běží na vašem počítači, **nic se neinstaluje** a **funguje úplně bez internetu**. Ovládá se v prohlížeči, ale data nikam neodcházejí.
+
+> **Stav:** verze 0.1 je zatím jen kostra aplikace. Umí jen zkušební export, zpracování dat přibude v dalších verzích.
+
+## Co potřebujete
+
+- Windows 10 nebo 11 (64bit)
+- libovolný prohlížeč (Edge, Chrome, Firefox)
+- asi 250 MB místa na disku
+
+## 1. Stažení
+
+1. Otevřete stránku **[Releases](../../releases/latest)** tohoto repozitáře.
+2. V části *Assets* stáhněte soubor `GC-MS-Automat-vX.Y.Z-windows-x64.zip`.
+
+## 2. Rozbalení
+
+1. *(Doporučeno)* Klikněte na stažený ZIP pravým tlačítkem → **Vlastnosti** → dole zaškrtněte **Odblokovat** → **OK**. Windows se pak při spuštění nebude ptát (viz bod 4).
+2. Klikněte na ZIP pravým tlačítkem → **Extrahovat vše…** → **Extrahovat**.
+3. Rozbalit můžete kamkoli, kam smíte zapisovat (Dokumenty, Plocha, flash disk…). Nerozbalujte ale do `C:\Program Files`, tam aplikace nemůže ukládat výsledky.
+
+**Tip:** Volte spíš krátkou cestu (např. `C:\GCMS` nebo `Dokumenty`). Windows má limit 260 znaků na délku cesty k souboru, takže ve velmi hluboko vnořených složkách může rozbalení selhat.
+
+**Aplikaci nespouštějte přímo z otevřeného ZIPu**, vždy ji nejdřív rozbalte.
+
+## 3. Spuštění
+
+V rozbalené složce dvakrát klikněte na **`spustit.bat`**.
+
+- Otevře se černé okno (konzole) a za chvíli i aplikace v prohlížeči.
+- **Černé okno nezavírejte**, dokud s aplikací pracujete. Zavře se samo.
+
+## 4. Varování „Systém Windows ochránil váš počítač“
+
+Při prvním spuštění se může objevit modré okno **„Systém Windows ochránil váš počítač“** (Windows SmartScreen). Objevuje se u programů stažených z internetu, které nejsou podepsané placeným certifikátem. Neznamená to, že je program škodlivý.
+
+1. Klikněte na odkaz **Další informace**.
+2. Objeví se tlačítko **Přesto spustit**, klikněte na něj.
+
+Varování se většinou ukáže jen jednou. Pokud jste ZIP před rozbalením odblokovali (bod 2.1), neukáže se vůbec.
+
+Pokud zdroji nevěříte, zdrojový kód je celý veřejně v tomto repozitáři a ZIP sestavuje automaticky GitHub (viz záložka *Actions*). U každé verze je uveden i kontrolní součet SHA-256.
+
+## 5. Práce s aplikací
+
+- **Verze** programu je vidět nahoře vedle názvu.
+- **Export test** uloží zkušební CSV soubor do složky **`exporty`** uvnitř složky aplikace. Tlačítko **Otevřít složku s exporty** ji otevře.
+- **Formát CSV:**
+  - **Excel (česky)** (výchozí): oddělovač `;` a desetinná čárka. Správně se otevře v české verzi Excelu.
+  - **Mezinárodní**: oddělovač `,` a desetinná tečka. Pro Python, R nebo anglický Excel.
+- Každý export začíná hlavičkou (řádky začínající `#`): název aplikace, verze, datum a čas zpracování a verze použitých knihoven. Ve výsledcích tak vždy dohledáte, čím a kdy vznikly.
+
+## 6. Ukončení
+
+Aplikace se ukončí sama, když:
+
+- kliknete na **Ukončit** (vpravo nahoře), nebo
+- zavřete kartu či okno prohlížeče (asi do 10 sekund), nebo
+- prohlížeč dlouho nereaguje (asi 2,5 minuty).
+
+Ukončit ji můžete i zavřením černého okna.
+
+## Řešení problémů
+
+| Problém | Co dělat |
+|---|---|
+| Hláška „Nenalezen soubor python\python.exe“ | ZIP není rozbalený, nebo chybí část souborů. Rozbalte ho znovu (bod 2). |
+| Prohlížeč se neotevřel | V černém okně je celá adresa (`http://127.0.0.1:…/?token=…`). Zkopírujte ji do prohlížeče. Funguje jen během tohoto spuštění. |
+| „Aplikace už neběží“ | Aplikace se ukončila (např. po dlouhé neaktivitě karty). Spusťte znovu `spustit.bat`. |
+| Export hlásí „Soubor nelze uložit“ | Složka je jen pro čtení (např. `Program Files` nebo síťový disk). Přesuňte aplikaci do Dokumentů. |
+| Antivir hlásí problém | Jde o nepodepsaný program. Obraťte se na správce IT, kód je veřejný. |
+| Něco jiného | Pošlete autorce soubor `logs\gcms-automat.log` ze složky aplikace. |
+
+## Pro vývojáře
+
+Pravidla projektu jsou v [`CLAUDE.md`](CLAUDE.md). Stručně:
+
+```text
+python -m pip install -r requirements/dev.txt
+python -m pytest              # testy
+python app/main.py            # spuštění bez sestavení
+python tools/build_portable.py  # sestavení ZIPu (stáhne přenosný Python)
+```
+
+Nová verze: změňte `__version__` v `app/gcms_automat/__init__.py`, commitněte a vytvořte tag `vX.Y.Z`. GitHub Actions pak ZIP sestaví, otestuje a přiloží k Releases.

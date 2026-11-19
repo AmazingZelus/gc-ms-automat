@@ -1,8 +1,110 @@
-# Placeholder workflow (permission test). Will be replaced by the real build.
+# Builds the portable Windows ZIP, tests it, and publishes it on version tags.
+#   push to main / pull request -> tests + build + smoke test (ZIP as workflow artifact)
+#   push of a tag like v0.1.0   -> the same + GitHub Release with the ZIP attached
 name: build
-on: workflow_dispatch
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
 jobs:
-  noop:
-    runs-on: ubuntu-latest
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: pwsh
     steps:
-      - run: echo ok
+      # This gets the code.
+      - uses: actions/checkout@v5
+
+      # This installs the same Python minor version as the portable one (3.14).
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      # This reads the version from app/gcms_automat/__init__.py (single source).
+      - name: Read version
+        id: version
+        run: |
+          $v = python tools/build_portable.py --print-version
+          if (-not $v) { throw "version not found" }
+          "version=$v" >> $env:GITHUB_OUTPUT
+          Write-Host "Version: $v"
+
+      # This stops a release whose tag does not match the version in the code.
+      - name: Check tag matches version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          if ("${{ github.ref_name }}" -ne "v${{ steps.version.outputs.version }}") {
+            throw "Tag ${{ github.ref_name }} does not match version v${{ steps.version.outputs.version }}"
+          }
+
+      # This runs the unit tests on Windows with the exact locked libraries.
+      - name: Unit tests
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes --only-binary=:all: -r requirements/runtime.lock.txt
+          python -m pip install --disable-pip-version-check pytest==9.2.0
+          python -m pytest -q
+
+      # This builds the portable ZIP.
+      - name: Build portable ZIP
+        run: python tools/build_portable.py
+
+      # This extracts the ZIP into a tricky folder and checks start, export and shutdown.
+      - name: Smoke test
+        run: |
+          $zip = (Get-ChildItem dist/*.zip | Select-Object -First 1).FullName
+          ./tools/smoke_test.ps1 -ZipPath $zip -ExpectedVersion "${{ steps.version.outputs.version }}"
+
+      # This writes a SHA-256 checksum next to the ZIP (users can verify the download).
+      - name: Checksum
+        run: |
+          Get-ChildItem dist/*.zip | ForEach-Object {
+            $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$h  $($_.Name)" | Out-File -Encoding ascii "$($_.FullName).sha256"
+            Write-Host "$h  $($_.Name)"
+          }
+
+      # This keeps the ZIP as a downloadable workflow artifact (also for non-tag builds).
+      - uses: actions/upload-artifact@v5
+        with:
+          name: GC-MS-Automat-v${{ steps.version.outputs.version }}-windows-x64
+          path: |
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    needs: build-windows
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          path: dist
+          merge-multiple: true
+
+      # This creates the GitHub Release and attaches the ZIP and its checksum.
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          zip=$(ls dist/*.zip)
+          sum=$(cut -d' ' -f1 dist/*.sha256)
+          notes="Přenosná verze pro Windows (64bit). Stáhněte ZIP, rozbalte a spusťte spustit.bat. Návod je v README.
+
+          SHA-256 ZIPu: \`${sum}\`"
+          gh release create "${{ github.ref_name }}" dist/*.zip dist/*.sha256 \
+            --repo "${{ github.repository }}" \
+            --title "GC-MS Automat ${{ github.ref_name }}" \
+            --notes "$notes"

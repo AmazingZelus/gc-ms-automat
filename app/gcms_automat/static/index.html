@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GC-MS Automat</title>
+  <!-- Everything is loaded from this local server only (works fully offline). -->
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <!-- This is the top bar with the app name, version and the quit button. -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="name" id="app-name">GC-MS Automat</span>
+      <span class="version" id="app-version">verze …</span>
+    </div>
+    <button id="btn-quit" class="btn btn-quiet" type="button">Ukončit</button>
+  </header>
+
+  <main>
+    <!-- This is the message shown when the server is no longer running. -->
+    <div id="offline-banner" class="banner banner-error" hidden>
+      Aplikace už neběží. Zavřete tuto kartu a spusťte ji znovu přes <code>spustit.bat</code>.
+    </div>
+
+    <!-- This is the demo card with the "Export test" button. -->
+    <section class="card">
+      <h1>Kostra aplikace</h1>
+      <p class="muted">
+        Zatím bez zpracování dat. Tlačítko níže ověří, že export funguje:
+        uloží malé CSV se známými hodnotami (x, x², x/2) a s hlavičkou
+        (název aplikace, verze, datum a čas zpracování).
+      </p>
+
+      <!-- This is a user setting with a default value and an explanation. -->
+      <label class="field">
+        <span class="field-label">Formát CSV</span>
+        <select id="csv-format"></select>
+        <span class="field-help">
+          Výchozí „Excel (česky)“ se správně otevře v české verzi Excelu.
+          „Mezinárodní“ zvolte pro Python, R nebo anglický Excel.
+        </span>
+      </label>
+
+      <div class="actions">
+        <button id="btn-export" class="btn btn-primary" type="button">Export test</button>
+        <button id="btn-open-folder" class="btn" type="button">Otevřít složku s exporty</button>
+      </div>
+      <p id="export-result" class="result" role="status"></p>
+    </section>
+
+    <!-- This shows versions of Python and the scientific libraries (for citing). -->
+    <section class="card">
+      <h2>O aplikaci</h2>
+      <p class="muted">Verze knihoven se zapisují i do každého exportu.</p>
+      <ul id="lib-versions" class="versions"></ul>
+      <p class="muted small">Exporty se ukládají do: <code id="exports-dir">…</code></p>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
