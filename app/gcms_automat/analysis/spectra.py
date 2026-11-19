@@ -49,15 +49,15 @@ def peak_spectrum(run: Run, apex: int, start: int, end: int, axis: MzAxis,
 
     spectrum = mean(scans apex-1 .. apex+1) - mean(background scans)
     Background = up to `background_scans` scans just before the window start and
-    just after the window end. Negative values are set to 0; the result is scaled
-    so the most intense ion is 100.
+    just after the window end (0 = no background subtraction). Negative values are
+    set to 0; the result is scaled so the most intense ion is 100.
     """
     n = run.n_scans
     # This averages 3 scans around the apex (less noise than a single scan).
     top = list(range(max(apex - 1, 0), min(apex + 2, n)))
     # This averages the scans just outside the integration window as background.
-    before = list(range(max(start - background_scans, 0), max(start, 0) + 1))
-    after = list(range(min(end, n - 1), min(end + background_scans + 1, n)))
+    before = list(range(max(start - background_scans, 0), max(start, 0) + 1)) if background_scans > 0 else []
+    after = list(range(min(end, n - 1), min(end + background_scans + 1, n))) if background_scans > 0 else []
     background = sorted(set(before + after) - set(top))
     spectrum = _rows_mean(run, top, axis) - _rows_mean(run, background, axis)
     spectrum = np.clip(spectrum, 0.0, None)
@@ -96,9 +96,9 @@ def base_ion(spectrum: np.ndarray, axis: MzAxis) -> int | None:
     return int(axis.lo + int(np.argmax(spectrum)))
 
 
-def is_co2_noise(spectrum: np.ndarray, axis: MzAxis) -> bool:
-    """CO2 noise: base ion m/z 44 and fewer than 3 other ions above 10 %."""
+def is_co2_noise(spectrum: np.ndarray, axis: MzAxis, ion_pct: float = 10.0, min_other_ions: int = 3) -> bool:
+    """CO2 noise: base ion m/z 44 and fewer than `min_other_ions` other ions above `ion_pct` %."""
     if base_ion(spectrum, axis) != 44:
         return False
-    others = np.flatnonzero(spectrum >= 10.0)
-    return int(np.sum(axis.lo + others != 44)) < 3
+    others = np.flatnonzero(spectrum >= ion_pct)
+    return int(np.sum(axis.lo + others != 44)) < min_other_ions

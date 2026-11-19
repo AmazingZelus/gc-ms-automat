@@ -45,11 +45,21 @@ class AnalysisParams:
     # Minimum signal-to-noise ratio. 10 is the usual limit of quantification
     # convention (S/N 10:1; ICH Q2 guideline), so every reported peak is quantifiable.
     min_snr: float = 10.0
-    # Baseline: rolling-minimum window [min]. Must be several times wider than the
-    # widest peak. 1.75 min = 301 scans at 0.35 s/scan (previous version).
-    baseline_window_min: float = 1.75
+    # Baseline stiffness of arPLS as log10(lambda). 7: synthetic tests (tailing peak,
+    # crowded cluster, small isolated peak) give areas within 1 % for 6..8, and the
+    # real test run (7790 scans) has no negative areas for 6..8.
+    baseline_log_lambda: float = 7.0
     # Savitzky-Golay smoothing window [scans]; 5 points / 2nd order (previous version).
     smooth_points: int = 5
+    # Integration window end: where the signal falls to this % of the peak height.
+    # 1 % = 2.9 sigma of a Gaussian peak -> only 0.4 % of the area is left out.
+    window_end_pct: float = 1.0
+    # ... or where it disappears into the noise (below this many noise sigma),
+    # whichever comes first. 1 sigma: below it the signal cannot be told from noise.
+    window_end_noise_sigma: float = 1.0
+    # Spectrum background: scans averaged just outside the window on each side.
+    # 3 scans (~1 s at 0.35 s/scan) is close to the peak but averages the noise (previous version).
+    spectrum_background_scans: int = 3
 
     # ---- Alignment between runs ----
     # Max. retention time difference for "the same compound" [min] (previous version).
@@ -65,8 +75,17 @@ class AnalysisParams:
     fill_min_similarity: float = 0.60
 
     # ---- Noise filters (pipeline) ----
-    # CO2 noise: base peak m/z 44 and fewer than 3 other ions above 10 %.
+    # CO2 noise: base peak m/z 44 and fewer than `co2_min_other_ions` other ions above
+    # `co2_ion_pct` % (rule of the previous version; a real compound with base ion 44
+    # normally has several other significant ions).
     co2_filter: bool = True
+    co2_ion_pct: float = 10.0
+    co2_min_other_ions: int = 3
+
+    # ---- Alkane auto-detection ----
+    # Minimum molecular ion M+ (after subtracting the 13C isotope peak of the
+    # [M-H]+ fragment) to accept a carbon number [% of base ion] (previous version).
+    alkane_min_molecular_ion_pct: float = 0.3
 
     # ---- View filters (instant, never change the computed numbers) ----
     # Hide rows whose base peak (100 % ion) is one of these m/z. Empty = off.
@@ -94,20 +113,28 @@ class AnalysisParams:
         return {f.name: getattr(self, f.name) for f in fields(self)}
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "AnalysisParams":
-        """Build parameters from (possibly partial / string) user input; invalid -> default."""
+    def from_dict(cls, data: dict[str, Any], base: "AnalysisParams | None" = None,
+                  rejected: list[str] | None = None) -> "AnalysisParams":
+        """Build parameters from (possibly partial / string) user input.
+
+        An invalid value keeps the previous value (from `base`, else the default);
+        its label is appended to `rejected` so the user can be told.
+        """
         # This converts every known key to its type; unknown keys are ignored.
-        params = cls()
+        params = cls(**base.to_dict()) if base is not None else cls()
+        rejected = rejected if rejected is not None else []
         for info in PARAMETERS:
             if info.key not in data:
                 continue
             try:
                 value = _convert(info, data[info.key])
             except (TypeError, ValueError):
+                rejected.append(info.label)
                 continue
-            if info.minimum is not None and isinstance(value, (int, float)) and value < info.minimum:
-                continue
-            if info.maximum is not None and isinstance(value, (int, float)) and value > info.maximum:
+            number = isinstance(value, (int, float)) and not isinstance(value, bool)
+            if number and ((info.minimum is not None and value < info.minimum) or
+                           (info.maximum is not None and value > info.maximum)):
+                rejected.append(info.label)
                 continue
             setattr(params, info.key, value)
         return params
@@ -154,9 +181,6 @@ PARAMETERS: list[ParamInfo] = [
     ParamInfo("min_snr", "Min. poměr signál/šum", "S/N",
               "10 odpovídá obvyklé mezi stanovitelnosti (S/N 10:1). Pík musí splnit obě podmínky.",
               "Detekce píků", minimum=0, step=1),
-    ParamInfo("baseline_window_min", "Okno baseline", "min",
-              "Šířka klouzavého minima pro baseline. Musí být několikrát širší než nejširší pík.",
-              "Detekce píků", minimum=0.05, step=0.05),
     ParamInfo("smooth_points", "Vyhlazení", "skenů",
               "Okno Savitzky–Golayova vyhlazení (liché číslo, 2. řád). 0 nebo 1 = bez vyhlazení.",
               "Detekce píků", kind="int", minimum=0, maximum=51, step=2),
@@ -193,6 +217,27 @@ PARAMETERS: list[ParamInfo] = [
               "Řádky, kde je nejhorší shoda spektra vůči referenci nižší, se podbarví červeně. "
               "0,85 je výchozí odhad, uprav podle zkušenosti.", "Zobrazení tabulky",
               stage="view", minimum=0, maximum=1, step=0.05),
+    ParamInfo("baseline_log_lambda", "Tuhost baseline (log₁₀ λ)", "",
+              "Baseline metodou arPLS (Baek a kol., 2015). Vyšší číslo = tužší, rovnější baseline. "
+              "Obvykle 6–8; na testovacích datech se plochy v tomto rozsahu mění o méně než 1 %.",
+              "Pokročilé", minimum=3, maximum=11, step=0.5),
+    ParamInfo("window_end_pct", "Konec okna píku", "% výšky",
+              "Okno končí, kde signál klesne na toto % výšky píku nad baseline (1 % u Gaussova píku vynechá 0,4 % plochy), "
+              "nebo v údolí k sousednímu píku (kolmice).",
+              "Pokročilé", minimum=0.1, maximum=50, step=0.5),
+    ParamInfo("window_end_noise_sigma", "Konec okna v šumu", "× šum (σ)",
+              "… nebo kde signál zapadne do šumu (pod tento násobek σ šumu), podle toho, co nastane dřív.",
+              "Pokročilé", minimum=0, maximum=10, step=0.5),
+    ParamInfo("spectrum_background_scans", "Pozadí spektra", "skenů",
+              "Kolik skenů těsně před a za oknem se průměruje jako pozadí odečtené od spektra.",
+              "Pokročilé", kind="int", minimum=0, maximum=50, step=1),
+    ParamInfo("co2_ion_pct", "CO₂: práh ostatních iontů", "%", "", "Pokročilé", minimum=0, maximum=100, step=1),
+    ParamInfo("co2_min_other_ions", "CO₂: min. počet ostatních iontů", "",
+              "Spektrum se základním iontem 44 je šum CO₂, pokud má méně ostatních iontů nad prahem.",
+              "Pokročilé", kind="int", minimum=0, maximum=50, step=1),
+    ParamInfo("alkane_min_molecular_ion_pct", "Alkany: min. molekulový iont", "%",
+              "Pro automatické určení počtu uhlíků (po odečtení izotopu ¹³C fragmentu [M−H]⁺).",
+              "Pokročilé", minimum=0, maximum=100, step=0.1),
     ParamInfo("weight_intensity_power", "Váha intenzity (exponent)", "",
               "Shoda = kosinus vektorů intenzita^a × (m/z)^b.", "Pokročilé", minimum=0, maximum=3, step=0.1),
     ParamInfo("weight_mz_power", "Váha m/z (exponent)", "", "", "Pokročilé", minimum=0, maximum=3, step=0.1),

@@ -18,7 +18,8 @@ from .align import PeakRef, align_peaks
 from .cdf import Run
 from .params import AnalysisParams
 from .retention import Alkane, retention_index
-from .signal import ProcessedTrace, apex_in_window, integrate_window, pick_peaks, process_trace
+from .signal import (ProcessedTrace, WindowRule, apex_in_window, integrate_window, pick_peaks,
+                     process_trace, refine_apex)
 from .spectra import MzAxis, base_ion, is_co2_noise, peak_spectrum, similarity, top_ions
 
 EPS = 1e-6  # [min] tolerance when comparing window edges
@@ -97,9 +98,9 @@ class Analysis:
         self.alkanes = sorted(alkanes, key=lambda a: a.rt)
         self.axis = MzAxis.covering(runs)
         self.names = [r.name for r in runs]
-        self.data = {r.name: RunData(r, process_trace(r.rt_min, r.tic(), params.baseline_window_min,
-                                                      params.smooth_points, params.min_height_pct,
-                                                      params.min_snr)) for r in runs}
+        self.data = {r.name: RunData(r, process_trace(r.rt_min, r.tic(), params.baseline_log_lambda,
+                                                      params.smooth_points)) for r in runs}
+        self.rule = WindowRule(params.window_end_pct, params.window_end_noise_sigma)
         self.rows: list[Row] = []
         self.stats: dict[str, int] = {}
         self._undo: list[tuple[list[Row], int, str]] = []
@@ -120,7 +121,7 @@ class Analysis:
         end = min(int(np.searchsorted(rt, t1 + EPS)) - 1, rt.size - 1)
         if end - start < 2:
             return None, apex, False
-        return peak_spectrum(data.run, apex, start, end, self.axis), apex, inside
+        return peak_spectrum(data.run, apex, start, end, self.axis, self.params.spectrum_background_scans), apex, inside
 
     def evaluate(self, name: str, t0: float, t1: float, ref: np.ndarray | None, status: str, source: str,
                  min_snr: float | None = None, min_sim: float | None = None) -> Cell:
@@ -130,7 +131,8 @@ class Analysis:
         cell = Cell(status=status, t0=t0, t1=t1, source=source)
         if spectrum is None:
             return Cell(status="ND", source=source, reason="okno je užší než 3 skeny")
-        cell.apex_rt = float(data.trace.rt_min[apex])
+        # Apex time refined between scans (same as for detected peaks) [min].
+        cell.apex_rt = refine_apex(data.trace.rt_min, data.trace.corrected, apex)
         cell.snr = float(data.trace.corrected[apex] / data.trace.noise)
         cell.inside = inside
         if ref is not None:
@@ -196,6 +198,17 @@ class Analysis:
         row.base_ion = base_ion(row.ref_spectrum, self.axis)
         row.ions = top_ions(row.ref_spectrum, self.axis, 5)
 
+    def _sort_rows(self) -> None:
+        """Order rows by elution: middle of the integration window, then RT.
+
+        (The window middle keeps the left part of a split before the right part even
+        when both apexes sit at the split point.)
+        """
+        def key(r: Row) -> tuple[float, float]:
+            t0, t1 = self.consensus_window(r)
+            return ((t0 + t1) / 2, r.rt)
+        self.rows.sort(key=key)
+
     def _new_uid(self) -> int:
         uid = self._next_uid
         self._next_uid += 1
@@ -209,8 +222,8 @@ class Analysis:
         detected: dict[tuple[int, int], object] = {}
         for i, name in enumerate(self.names):
             d = self.data[name]
-            for k, p in enumerate(pick_peaks(d.trace, P.min_height_pct, P.min_snr, P.rt_min, P.rt_max)):
-                spec = peak_spectrum(d.run, p.apex, p.start, p.end, self.axis)
+            for k, p in enumerate(pick_peaks(d.trace, P.min_height_pct, P.min_snr, P.rt_min, P.rt_max, self.rule)):
+                spec = peak_spectrum(d.run, p.apex, p.start, p.end, self.axis, P.spectrum_background_scans)
                 peak_refs.append(PeakRef(i, k, p.rt, p.height, spec))
                 detected[(i, k)] = p
         self.stats["peaks"] = len(peak_refs)
@@ -223,7 +236,7 @@ class Analysis:
         # ---- This turns clusters into rows (CO2 noise is dropped here) ----
         for cluster in clusters:
             ref = max(cluster.members.values(), key=lambda m: m.height)
-            if P.co2_filter and is_co2_noise(ref.spectrum, self.axis):
+            if P.co2_filter and is_co2_noise(ref.spectrum, self.axis, P.co2_ion_pct, P.co2_min_other_ions):
                 self.stats["co2"] += 1
                 continue
             cells = {}
@@ -233,14 +246,13 @@ class Analysis:
                     cells[name] = Cell(reason="pík nenalezen nad prahem detekce")
                     continue
                 p = detected[(i, member.index)]
-                cells[name] = Cell(status="det", t0=p.t0, t1=p.t1, area=p.area,
-                                   apex_rt=float(self.data[name].trace.rt_min[p.apex]), snr=p.snr,
+                cells[name] = Cell(status="det", t0=p.t0, t1=p.t1, area=p.area, apex_rt=p.rt, snr=p.snr,
                                    similarity=1.0 if member is ref else self.sim(member.spectrum, ref.spectrum),
                                    inside=True, source="pík nalezen v záznamu")
             row = Row(uid=0, label="", cells=cells, ref_run=self.names[ref.run], ref_spectrum=ref.spectrum)
             self.refresh(row)
             self.rows.append(row)
-        self.rows.sort(key=lambda r: r.rt)
+        self._sort_rows()
 
         # ---- This fills in a missing replicate in the window of the found one ----
         self.stats["filled"] = self.stats["fill_failed"] = 0
@@ -295,6 +307,9 @@ class Analysis:
         if not self._undo:
             raise EditError("Není co vrátit.")
         self.rows, self._next_uid, description = self._undo.pop()
+        # Derived values (e.g. RI) follow the CURRENT alkanes, not those of the snapshot.
+        for row in self.rows:
+            self.refresh(row)
         return description
 
     @property
@@ -307,10 +322,17 @@ class Analysis:
                 return r
         raise EditError("Řádek už neexistuje (byl sloučen nebo rozdělen).")
 
+    def live_row(self, uid: int) -> Row:
+        """A row that may be edited (deleted rows must be restored first)."""
+        row = self.row(uid)
+        if row.deleted:
+            raise EditError(f"Řádek {row.label} je smazaný. Nejdřív ho obnov.")
+        return row
+
     # ------------------------------------------------------------ manual edits
     def set_window(self, uid: int, t0: float, t1: float) -> Row:
         """Use [t0, t1] in every run where the row has an area."""
-        row = self.row(uid)
+        row = self.live_row(uid)
         if not t1 > t0:
             raise EditError("Konec okna musí být větší než začátek.")
         targets = [n for n in self.names if row.cells[n].has_window]
@@ -325,12 +347,12 @@ class Analysis:
             row.cells[n] = self.evaluate(n, t0, t1, row.ref_spectrum, "man", "ruční okno")
         row.edits.append(f"okno {t0:.3f}–{t1:.3f} min")
         self.refresh(row)
-        self.rows.sort(key=lambda r: r.rt)
+        self._sort_rows()
         return row
 
     def fill_missing(self, uid: int) -> Row:
         """Try to integrate the runs where the row is ND, in the row's median window."""
-        row = self.row(uid)
+        row = self.live_row(uid)
         missing = [n for n in self.names if row.cells[n].status == "ND"]
         if not missing:
             raise EditError("Řádek nemá žádné ND.")
@@ -369,12 +391,12 @@ class Analysis:
                 if n in windows else Cell(reason="žádný ze sloučených řádků tu neměl plochu")
         self.refresh(merged)
         self.rows = [r for r in self.rows if r not in rows] + [merged]
-        self.rows.sort(key=lambda r: r.rt)
+        self._sort_rows()
         return merged
 
     def split(self, uid: int, at: float) -> list[Row]:
         """Split a row at time `at` [min] into <label>_1 and <label>_2."""
-        row = self.row(uid)
+        row = self.live_row(uid)
         t0, t1 = self.consensus_window(row)
         cells = [c for c in row.cells.values() if c.has_window]
         if not cells or not (min(c.t0 for c in cells) + 0.002 < at < max(c.t1 for c in cells) - 0.002):
@@ -406,7 +428,7 @@ class Analysis:
             parts.append(part)
         index = self.rows.index(row)
         self.rows[index:index + 1] = parts
-        self.rows.sort(key=lambda r: r.rt)
+        self._sort_rows()
         return parts
 
     def set_deleted(self, uid: int, deleted: bool) -> Row:

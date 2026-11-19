@@ -1,11 +1,12 @@
 """Chromatogram processing: baseline, smoothing, noise, peak picking, integration.
 
 All numerical work uses established library functions:
-  * scipy.ndimage.minimum_filter1d / uniform_filter1d  (rolling-minimum baseline)
-  * scipy.signal.savgol_filter      (Savitzky & Golay 1964, Anal. Chem. 36, 1627)
-  * scipy.signal.find_peaks / peak_widths
+  * pybaselines Baseline.arpls  (asymmetrically reweighted penalized least squares,
+    Baek, Park, Ahn & Choo 2015, Analyst 140, 250-257; library: D. Erb, pybaselines)
+  * scipy.signal.savgol_filter  (Savitzky & Golay 1964, Anal. Chem. 36, 1627)
+  * scipy.signal.find_peaks       (peak detection by prominence)
   * scipy.stats.median_abs_deviation (robust noise estimate)
-  * scipy.integrate.trapezoid       (trapezoidal rule)
+  * scipy.integrate.trapezoid   (trapezoidal rule)
 """
 
 from __future__ import annotations
@@ -13,9 +14,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+from pybaselines import Baseline
 from scipy.integrate import trapezoid
-from scipy.ndimage import median_filter, minimum_filter1d, uniform_filter1d
-from scipy.signal import find_peaks, peak_widths, savgol_filter
+from scipy.signal import find_peaks, savgol_filter
 from scipy.stats import median_abs_deviation
 
 
@@ -45,12 +46,19 @@ class Peak:
     area: float      # integrated corrected signal [counts * s]
 
 
-def scans_for_minutes(rt_min: np.ndarray, minutes: float) -> int:
-    """Convert a time span [min] to an odd number of scans (at least 3)."""
-    # This uses the median scan interval, robust against single irregular scans.
-    step = float(np.median(np.diff(rt_min))) if rt_min.size > 1 else 1.0
-    n = max(3, int(round(minutes / step)))
-    return n if n % 2 else n + 1
+@dataclass(frozen=True)
+class WindowRule:
+    """Where a peak's integration window ends (both user parameters).
+
+    The window ends, on each side, where the signal falls to the HIGHER of
+      end_pct     % of the peak's height above the baseline (1 % = 2.9 sigma for
+                  a Gaussian peak, which leaves out 0.4 % of its area), and
+      noise_sigma x noise (the peak has disappeared into the noise; stops small
+                  peaks from wandering into the noise, which would bias them).
+    """
+
+    end_pct: float = 1.0
+    noise_sigma: float = 1.0
 
 
 def estimate_noise(y: np.ndarray) -> float:
@@ -60,25 +68,12 @@ def estimate_noise(y: np.ndarray) -> float:
     The MAD (scaled to a normal distribution by scipy, scale="normal") ignores
     peaks; differences remove slow drift; dividing by sqrt(2) converts the spread
     of a difference of two noisy points back to the spread of one point.
+    Must be applied to UNSMOOTHED data (smoothing makes neighbours similar).
     """
     if y.size < 3:
         return 1e-9
     sigma = float(median_abs_deviation(np.diff(y), scale="normal")) / np.sqrt(2.0)
     return max(sigma, 1e-9)
-
-
-# Peaks interpolated under the baseline must have at least this S/N. 10 = the usual
-# limit of quantification convention (ICH Q2): only certain peaks, never noise.
-BASELINE_PEAK_SNR = 10.0
-
-
-# Region masked out under a peak for the baseline, in half widths at half maximum.
-# A Gaussian at 5 HWHM (5.9 sigma) is below 1e-7 of its height: fully at baseline.
-MASK_HALF_WIDTHS = 5.0
-
-# Max. window extent from the apex, in half widths at half maximum (HWHM). For a
-# Gaussian peak 3 HWHM = 3.5 sigma, which contains > 99.9 % of the area.
-WINDOW_HALF_WIDTHS = 3.0
 
 
 def _smooth(y: np.ndarray, smooth_points: int) -> np.ndarray:
@@ -89,101 +84,55 @@ def _smooth(y: np.ndarray, smooth_points: int) -> np.ndarray:
     return y.copy()
 
 
-def _peak_windows(y: np.ndarray, threshold: float) -> list[tuple[int, int, int]]:
-    """(start, apex, end) scan indices of peaks with prominence >= threshold.
+def process_trace(rt_min: np.ndarray, raw: np.ndarray, baseline_log_lambda: float,
+                  smooth_points: int) -> ProcessedTrace:
+    """Subtract the baseline (arPLS) and smooth the chromatogram.
 
-    A window runs from where the signal falls to 5 % of the prominence
-    (scipy.signal.peak_widths, rel_height 0.95), but
-      * at most WINDOW_HALF_WIDTHS x the half width at half maximum from the apex
-        on each side (otherwise, for small peaks, the window wanders off into the
-        noise, which keeps the signal above the 5 % level by chance), and
-      * never past the lowest point between the peak and a neighbouring peak,
-        so windows never overlap.
-    """
-    apexes, props = find_peaks(y, prominence=threshold)
-    if apexes.size == 0:
-        return []
-    base = (props["prominences"], props["left_bases"], props["right_bases"])
-    _, _, left, right = peak_widths(y, apexes, rel_height=0.95, prominence_data=base)
-    _, _, left_half, right_half = peak_widths(y, apexes, rel_height=0.5, prominence_data=base)
-    windows = []
-    for k, apex in enumerate(apexes):
-        # This limits the window by the peak's own shape (left and right separately,
-        # so a tailing peak keeps its longer tail).
-        left_limit = apex - WINDOW_HALF_WIDTHS * (apex - left_half[k])
-        right_limit = apex + WINDOW_HALF_WIDTHS * (right_half[k] - apex)
-        start = int(np.floor(max(left[k], left_limit)))
-        end = int(np.ceil(min(right[k], right_limit)))
-        if k > 0:
-            prev = apexes[k - 1]
-            start = max(start, int(prev + np.argmin(y[prev:apex + 1])))
-        if k < apexes.size - 1:
-            nxt = apexes[k + 1]
-            end = min(end, int(apex + np.argmin(y[apex:nxt + 1])))
-        end = min(end, y.size - 1)
-        if end - start >= 2:
-            windows.append((start, int(apex), end))
-    return windows
-
-
-def _threshold(y: np.ndarray, noise: float, min_height_pct: float, min_snr: float) -> float:
-    """Peak prominence threshold: both % of the largest signal AND S/N must be met."""
-    return max(min_height_pct / 100.0 * float(np.max(y, initial=0.0)), min_snr * noise)
-
-
-def process_trace(rt_min: np.ndarray, raw: np.ndarray, baseline_window_min: float,
-                  smooth_points: int, min_height_pct: float = 0.2, min_snr: float = 10.0) -> ProcessedTrace:
-    """Subtract the baseline and smooth the chromatogram (two passes).
-
-    Pass 1 (only to find where the peaks are): rolling minimum, then rolling mean
-        of it. This lies at the LOWER edge of the noise, so the rolling median of
-        what is left is added (peaks are a minority of the points in a window, so
-        the median is the middle of the noise).
-    Pass 2 (the baseline actually used): the raw signal around every clear peak
-        found in pass 1 (apex +- MASK_HALF_WIDTHS half widths, where the peak has
-        fully returned to the baseline) is replaced by straight lines between the
-        surrounding peak-free points; the rolling mean of this peak-free signal is
-        the baseline. It runs through the MIDDLE of the noise, so small peaks are
-        not inflated by the noise offset (with the pass-1 baseline a peak 10x above
-        the noise came out ~70 % too large in the tests).
-    Only clear peaks (S/N >= BASELINE_PEAK_SNR) are masked: with a low limit,
-    noise maxima would be cut out too and the baseline would sink again.
+    arPLS fits a smooth curve that follows the signal where there are no peaks and
+    goes under the peaks; the weights take the noise into account, so the baseline
+    runs through the MIDDLE of the noise (no bias of small peaks) and also stays
+    under peak tails and crowded regions. lambda = 10^baseline_log_lambda sets the
+    stiffness (higher = stiffer). Tests: results change < 1 % between 10^6 and 10^8.
     The corrected signal is not clipped at 0: noise is symmetric and cancels out.
     """
-    window = scans_for_minutes(rt_min, baseline_window_min)
-
-    # ---- Pass 1: rough baseline, then where the clear peaks are ----
-    rough = uniform_filter1d(minimum_filter1d(raw, size=window, mode="nearest"), size=window, mode="nearest")
-    rough = rough + median_filter(raw - rough, size=window, mode="nearest")
-    first = _smooth(raw - rough, smooth_points)
-    # Noise is estimated from the UNSMOOTHED signal: smoothing makes neighbouring
-    # points similar, so the point-to-point estimate would come out too low.
-    snr = max(min_snr, BASELINE_PEAK_SNR)
-    mask = _peak_mask(first, _threshold(first, estimate_noise(raw - rough), min_height_pct, snr))
-
-    # ---- Pass 2: interpolate under the masked peaks, then rolling mean ----
-    index = np.arange(raw.size)
-    peak_free = raw.astype(float)
-    if mask.any() and not mask.all():
-        peak_free = np.interp(index, index[~mask], _smooth(raw, smooth_points)[~mask])
-    baseline = uniform_filter1d(peak_free, size=window, mode="nearest")
+    raw = np.asarray(raw, dtype=float)
+    if raw.size < 10:
+        baseline = np.full(raw.size, float(np.median(raw)) if raw.size else 0.0)
+    else:
+        baseline = Baseline(np.arange(raw.size)).arpls(raw, lam=10.0 ** baseline_log_lambda)[0]
     corrected = _smooth(raw - baseline, smooth_points)
     return ProcessedTrace(rt_min, raw, baseline, corrected, estimate_noise(raw - baseline))
 
 
-def _peak_mask(y: np.ndarray, threshold: float) -> np.ndarray:
-    """True for scans within MASK_HALF_WIDTHS half widths of a clear peak's apex."""
-    mask = np.zeros(y.size, dtype=bool)
-    apexes, props = find_peaks(y, prominence=threshold)
-    if apexes.size == 0:
-        return mask
-    base = (props["prominences"], props["left_bases"], props["right_bases"])
-    _, _, left_half, right_half = peak_widths(y, apexes, rel_height=0.5, prominence_data=base)
-    for apex, lh, rh in zip(apexes, left_half, right_half):
-        start = int(np.floor(apex - MASK_HALF_WIDTHS * (apex - lh)))
-        end = int(np.ceil(apex + MASK_HALF_WIDTHS * (rh - apex)))
-        mask[max(start, 0):min(end, y.size - 1) + 1] = True
-    return mask
+def _peak_windows(y: np.ndarray, threshold: float, rule: WindowRule, noise: float) -> list[tuple[int, int, int]]:
+    """(start, apex, end) scan indices of peaks with prominence >= threshold.
+
+    Peaks are found with scipy.signal.find_peaks (prominence). The window is then
+    found like in a classical integrator, separately on each side of the apex:
+    walk away from the apex until EITHER the signal (already baseline-corrected,
+    so measured from the baseline) falls below the end level (WindowRule) OR the
+    lowest point towards the neighbouring peak is reached ("drop line" at the
+    valley). So unresolved neighbours share the valley exactly: no gap, no overlap.
+    """
+    apexes, _ = find_peaks(y, prominence=threshold)
+    windows = []
+    for k, apex in enumerate(apexes):
+        level = max(rule.end_pct / 100.0 * float(y[apex]), rule.noise_sigma * noise)
+        # Right side: search up to the next apex (or the end of the run).
+        stop = int(apexes[k + 1]) if k < apexes.size - 1 else y.size - 1
+        segment = y[apex:stop + 1]
+        valley = int(np.argmin(segment))
+        below = np.flatnonzero(segment[:valley + 1] < level)
+        end = apex + (int(below[0]) if below.size else valley)
+        # Left side: search back to the previous apex (or the start of the run).
+        stop = int(apexes[k - 1]) if k > 0 else 0
+        segment = y[stop:apex + 1][::-1]
+        valley = int(np.argmin(segment))
+        below = np.flatnonzero(segment[:valley + 1] < level)
+        start = apex - (int(below[0]) if below.size else valley)
+        if end - start >= 2:
+            windows.append((int(start), int(apex), int(end)))
+    return windows
 
 
 def refine_apex(rt_min: np.ndarray, y: np.ndarray, i: int) -> float:
@@ -218,18 +167,25 @@ def integrate_window(trace: ProcessedTrace, t0: float, t1: float) -> float:
 
 
 def pick_peaks(trace: ProcessedTrace, min_height_pct: float, min_snr: float,
-               rt_min: float, rt_max: float) -> list[Peak]:
-    """Find peaks in the corrected chromatogram (thresholds and windows: see _peak_windows)."""
-    y = trace.corrected
-    if y.size < 5 or float(y.max()) <= 0:
+               rt_min: float, rt_max: float, rule: WindowRule = WindowRule()) -> list[Peak]:
+    """Find peaks in the corrected chromatogram inside [rt_min, rt_max].
+
+    A peak is kept when its prominence is at least BOTH min_height_pct % of the
+    largest signal INSIDE the evaluated RT range (a huge solvent peak outside the
+    range does not raise the threshold) AND min_snr x noise.
+    """
+    y, rt = trace.corrected, trace.rt_min
+    inside = (rt >= rt_min) & (rt <= rt_max)
+    if y.size < 5 or not inside.any() or float(y[inside].max()) <= 0:
         return []
+    threshold = max(min_height_pct / 100.0 * float(y[inside].max()), min_snr * trace.noise)
     peaks: list[Peak] = []
-    for start, apex, end in _peak_windows(y, _threshold(y, trace.noise, min_height_pct, min_snr)):
-        rt = refine_apex(trace.rt_min, y, apex)
-        if not (rt_min <= rt <= rt_max):
+    for start, apex, end in _peak_windows(y, threshold, rule, trace.noise):
+        apex_rt = refine_apex(rt, y, apex)
+        if not (rt_min <= apex_rt <= rt_max):
             continue
-        t0, t1 = float(trace.rt_min[start]), float(trace.rt_min[end])
-        peaks.append(Peak(apex=apex, start=start, end=end, rt=rt, t0=t0, t1=t1,
+        t0, t1 = float(rt[start]), float(rt[end])
+        peaks.append(Peak(apex=apex, start=start, end=end, rt=apex_rt, t0=t0, t1=t1,
                           height=float(y[apex]), snr=float(y[apex] / trace.noise),
                           area=integrate_window(trace, t0, t1)))
     return peaks

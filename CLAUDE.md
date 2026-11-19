@@ -69,10 +69,13 @@ Proč takto: Flask + waitress + čisté HTML/JS je nejjednodušší spolehlivá 
 
 ## Poznámky k metodě (aktuální stav)
 
-- Baseline: dvouprůchodová (klouzavé minimum + medián → najít jasné píky → pod nimi lineárně proložit → klouzavý průměr). Jednoduché klouzavé minimum leží na spodním okraji šumu a nadhodnocovalo malé píky (test: až o 70 %).
-- Šum (pro S/N) se odhaduje z NEvyhlazeného signálu; z vyhlazeného vychází asi poloviční.
-- Okno píku: do 5 % prominence, max. 3 pološířky (HWHM) od vrcholu, nikdy přes minimum k sousednímu píku.
-- Váhy shody spekter (intenzita^0,5 × m/z^1): `TODO: ověřit zdroj` (Stein & Scott 1994).
+- **Baseline:** arPLS z knihovny pybaselines (Baek a kol. 2015, Analyst 140, 250–257), tuhost log₁₀ λ = 7 (parametr). Vede středem šumu, drží se pod ocasy píků i pod hustými shluky. Dřívější klouzavé minimum/průměr dávalo u reálných dat záporné plochy a u malých píků systematickou chybu. Nevracet se k němu.
+- **Šum (pro S/N)** se odhaduje z NEvyhlazeného signálu (raw − baseline); z vyhlazeného vychází asi poloviční.
+- **Okno píku** (jako klasický integrátor): od vrcholu na obě strany, dokud signál neklesne pod max(1 % výšky, 1 σ šumu), nebo do údolí k sousednímu píku (kolmice). Sousední okna se dotýkají v údolí, nikdy se nepřekrývají.
+- Práh výšky (% největšího píku) se počítá jen uvnitř vyhodnocovaného RT rozsahu.
+- **Alkany automaticky:** M⁺ po odečtení izotopu ¹³C fragmentu na 14n+1. Alkany se slabým M⁺ se NEodhadují, uživatel je doplní.
+- **Váhy shody spekter** (intenzita^0,5 × m/z^1): `TODO: ověřit zdroj` (Stein & Scott 1994).
+- Testy obsahují i chvostující píky (EMG), shluky na driftující baseline, malé píky vedle velkých a náhodné sekvence úprav (fuzz test, že se okna nikdy nepřekryjí). Při změně metody tyhle testy nesmí povolit.
 
 ## Známá omezení ukončování (vyřešit, než aplikace začne držet data v paměti)
 

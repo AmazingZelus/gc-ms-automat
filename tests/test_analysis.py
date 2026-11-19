@@ -55,14 +55,14 @@ def test_noise_estimate_of_white_noise():
 
 
 def test_gaussian_peak_area_matches_formula():
-    # One peak with known area. The window ends where the signal falls to 5 % of
-    # the height (+-2.45 sigma), which cuts off 1.4 % of a Gaussian's area;
-    # tolerance 2 %.
+    # One peak with known area. The window ends where the signal falls to 1 % of
+    # the height (+-2.9 sigma), which cuts off 0.4 % of a Gaussian's area;
+    # tolerance 1 %.
     run = make_run("s1", [(A, 3.0, 1e5, SIGMA)])
     analysis = Analysis([run], [], params())
     row = row_near(analysis, 3.0)
     expected = gaussian_area(1e5, SIGMA, A)
-    assert row.cells["s1"].area == pytest.approx(expected, rel=0.02)
+    assert row.cells["s1"].area == pytest.approx(expected, rel=0.01)
     assert row.rt == pytest.approx(3.0, abs=0.003)  # within half a scan
 
 
@@ -83,6 +83,52 @@ def test_small_peak_next_to_a_big_one():
         run = make_run("s", [(A, 3.0, 1000.0, SIGMA), (B, 3.3, 1e5, SIGMA)], seed=seed)
         row = row_near(Analysis([run], [], params(min_snr=3)), 3.0, tol=0.03)
         assert row.cells["s"].area == pytest.approx(gaussian_area(1000.0, SIGMA, A), rel=0.03)
+
+
+def test_tailing_peak_and_small_neighbour():
+    # Reviewer case: tailing big peak (EMG, tau 0.1 min) on a 5000-count baseline and
+    # a small Gaussian 0.25 min before it. Known areas; tolerance 3 % (window end at
+    # 1 % of the height leaves out ~0.4 % of a Gaussian, more of a tail).
+    from synthetic import peak_shape
+    for seed in range(3):
+        run = make_run("s", [(A, 4.75, 3e4, SIGMA), (B, 5.0, 1e6, SIGMA, 0.1)], baseline=5000, noise=50, seed=seed)
+        analysis = Analysis([run], [], params())
+        small = row_near(analysis, 4.75, tol=0.03)
+        assert small.cells["s"].area == pytest.approx(gaussian_area(3e4, SIGMA, A), rel=0.03)
+
+
+def test_no_negative_areas_in_crowded_region_with_drift():
+    # Cluster of 5 overlapping peaks on a drifting baseline: every area must be
+    # positive and the sum within 3 % of the known total.
+    cluster = [(A, 6.0, 5e4, 0.025), (B, 6.08, 3e4, 0.025), (C, 6.17, 8e4, 0.025), (A, 6.25, 2e4, 0.025), (B, 6.4, 6e4, 0.025)]
+    run = make_run("s", cluster, baseline=2000, drift=300, noise=30)
+    analysis = Analysis([run], [], params())
+    areas = [r.cells["s"].area for r in analysis.rows if 5.9 < r.rt < 6.5]
+    assert all(a > 0 for a in areas)
+    expected = sum(gaussian_area(h, s, c) for c, _, h, s in cluster)
+    assert sum(areas) == pytest.approx(expected, rel=0.03)
+
+
+def test_filled_replicate_is_not_biased():
+    # Reviewer case: the small peak in s_b is below 0.2 % of its run maximum, so it is
+    # not detected there, only filled in. It must not come out systematically low
+    # (previous baseline: -6 to -7 %). Tolerance 3 % per seed, mean within 1.5 %.
+    ratios = []
+    for seed in range(6):
+        s_a = make_run("s_a", [(A, 3.0, 1e4, SIGMA), (B, 6.0, 2e6, SIGMA)], seed=seed)
+        s_b = make_run("s_b", [(A, 3.0, 3e3, SIGMA), (B, 6.0, 2e6, SIGMA)], seed=seed + 10)
+        cell = row_near(Analysis([s_a, s_b], [], params()), 3.0).cells["s_b"]
+        assert cell.status == "fill"
+        ratios.append(cell.area / gaussian_area(3e3, SIGMA, A))
+    assert all(abs(r - 1) < 0.03 for r in ratios)
+    assert abs(np.mean(ratios) - 1) < 0.015
+
+
+def test_height_threshold_ignores_peaks_outside_rt_range():
+    # A huge solvent peak at 1 min, outside rt_min = 2, must not raise the 0.2 % threshold.
+    run = make_run("s", [(C, 1.0, 5e7, SIGMA), (A, 4.0, 5e4, SIGMA)])
+    analysis = Analysis([run], [], params(rt_min=2.0))
+    row_near(analysis, 4.0)
 
 
 def test_similarity_properties():
@@ -170,8 +216,25 @@ def test_parse_alkane_table_formats():
 def test_find_alkanes_in_standard_run():
     run = make_run("alkany", [(alkane_compound(n), 2.0 + (n - 10), 1e5, SIGMA) for n in (10, 11, 12)])
     axis = MzAxis.covering([run])
-    found = find_alkanes([run], axis, 1.75, 5)
+    found = find_alkanes([run], axis, 7.0, 5)
     assert [(a.carbons, round(a.rt, 2)) for a in found] == [(10, 2.0), (11, 3.0), (12, 4.0)]
+
+
+def test_alkane_fragment_isotopes_are_not_read_as_molecular_ions():
+    # C10-C20; long alkanes have a weak M+ (0.2 % < 0.3 % limit). Their C(n)H(2n+1)+
+    # fragments carry 13C isotope peaks exactly at the M+ of shorter alkanes. Known
+    # result: C10-C16 found with the right carbon numbers, nothing mislabelled.
+    peaks = [(alkane_compound(n, 2.0 if n <= 16 else 0.2), 2.0 + (n - 10) * 0.8, 1e5, SIGMA) for n in range(10, 21)]
+    run = make_run("alkany", peaks, minutes=12)
+    found = find_alkanes([run], MzAxis.covering([run]), 7.0, 5)
+    assert [(a.carbons, round(a.rt, 1)) for a in found] == [(n, round(2.0 + (n - 10) * 0.8, 1)) for n in range(10, 17)]
+
+
+def test_check_alkanes():
+    from gcms_automat.analysis.retention import check_alkanes
+    assert check_alkanes([Alkane(10, 5.0), Alkane(11, 7.0)]) == ""
+    assert "opakuje" in check_alkanes([Alkane(10, 5.0), Alkane(10, 9.0)])
+    assert "stoupat" in check_alkanes([Alkane(10, 5.0), Alkane(12, 7.0), Alkane(11, 9.0)])
 
 
 # ---------------------------------------------------------------- manual edits
@@ -218,6 +281,78 @@ def test_restoring_a_deleted_row_cannot_create_overlap():
     analysis.set_window(b.uid, b.cells["r0"].t0, c.cells["r0"].t1)   # allowed: c is deleted
     with pytest.raises(EditError):
         analysis.set_deleted(c.uid, False)
+
+
+def test_deleted_rows_cannot_be_edited():
+    analysis = Analysis(three_runs(), [], params())
+    b, c = row_near(analysis, 5.0), row_near(analysis, 5.15)
+    analysis.set_deleted(c.uid, True)
+    analysis.set_window(b.uid, b.cells["r0"].t0, c.cells["r0"].t1)
+    for edit in (lambda: analysis.split(c.uid, 5.15), lambda: analysis.set_window(c.uid, 5.1, 5.2),
+                 lambda: analysis.fill_missing(c.uid)):
+        with pytest.raises(EditError):
+            edit()
+    assert analysis.overlap_problems() == []
+
+
+def test_random_edit_sequences_never_create_overlaps():
+    # Fuzz test: 300 random edits (window, split, merge, fill, delete, restore, undo);
+    # refused edits are fine, but the no-overlap rule must hold after every step.
+    rng = np.random.default_rng(42)
+    analysis = Analysis(three_runs(), [], params())
+    for _ in range(300):
+        rows = analysis.rows
+        r = rows[int(rng.integers(len(rows)))]
+        t = float(rng.uniform(2.8, 5.4))
+        action = int(rng.integers(7))
+        try:
+            if action == 0:
+                analysis.set_window(r.uid, t, t + float(rng.uniform(0.01, 0.3)))
+            elif action == 1:
+                analysis.split(r.uid, r.rt + float(rng.normal(0, 0.02)))
+            elif action == 2:
+                other = rows[int(rng.integers(len(rows)))]
+                analysis.merge([r.uid, other.uid])
+            elif action == 3:
+                analysis.fill_missing(r.uid)
+            elif action == 4:
+                analysis.set_deleted(r.uid, True)
+            elif action == 5:
+                analysis.set_deleted(r.uid, False)
+            else:
+                analysis.undo()
+        except EditError:
+            pass
+        assert analysis.overlap_problems() == []
+
+
+def test_undo_uses_current_alkanes_for_ri():
+    analysis = Analysis(three_runs(), [Alkane(10, 2.0), Alkane(11, 4.0)], params())
+    row = row_near(analysis, 3.0)
+    analysis.set_note(row.uid, "x")
+    analysis.alkanes = [Alkane(10, 2.0), Alkane(12, 4.0)]
+    analysis.undo()
+    assert row_near(analysis, 3.0).ri == pytest.approx(1100, abs=1)   # halfway C10-C12
+
+
+def test_invalid_parameter_keeps_previous_value():
+    base = AnalysisParams(min_similarity=0.8)
+    rejected = []
+    p = AnalysisParams.from_dict({"min_similarity": 1.5}, base=base, rejected=rejected)
+    assert p.min_similarity == 0.8 and rejected
+
+
+def test_damaged_cdf_files_are_rejected(tmp_path):
+    rt = np.array([1.0, 1.01])
+    cases = {"nan": [(np.array([np.nan]), np.array([1.0])), (np.array([43.0]), np.array([1.0]))],
+             "huge": [(np.array([1e9]), np.array([1.0])), (np.array([43.0]), np.array([1.0]))]}
+    for name, scans in cases.items():
+        write_cdf(tmp_path / f"{name}.CDF", rt, scans)
+        with pytest.raises(ValueError):
+            read_cdf((tmp_path / f"{name}.CDF").read_bytes(), name)
+    write_cdf(tmp_path / "time.CDF", np.array([1.0, 0.9]), cases["nan"][1:] * 2)
+    with pytest.raises(ValueError):
+        read_cdf((tmp_path / "time.CDF").read_bytes(), "time")
 
 
 # ---------------------------------------------------------------- view filters

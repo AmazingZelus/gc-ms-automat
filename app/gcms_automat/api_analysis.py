@@ -35,6 +35,16 @@ def create_blueprint(session: Session) -> Blueprint:
             return jsonify(ok=True, **(result or {}))
         return wrapped
 
+    def uid_list(value):
+        if not isinstance(value, list) or not all(isinstance(u, int) and not isinstance(u, bool) for u in value):
+            raise EditError("Seznam řádků musí být seznam čísel.")
+        return value
+
+    def flag(value):
+        if not isinstance(value, bool):
+            raise EditError("Očekávám true/false.")
+        return value
+
     def number(value, name):
         x = float(value)
         if not math.isfinite(x):
@@ -59,19 +69,20 @@ def create_blueprint(session: Session) -> Blueprint:
     # ---- This receives uploaded .CDF files ----
     @bp.post("/api/files")
     def upload():
-        added, errors = [], []
+        added, replaced, errors = [], [], []
         with session.lock:
             for f in request.files.getlist("files"):
                 try:
-                    added.append(session.add_file(f.filename or "soubor.CDF", f.read()))
-                except ValueError as exc:
+                    name, was_there = session.add_file(f.filename or "soubor.CDF", f.read())
+                    (replaced if was_there or name in added else added).append(name)
+                except Exception as exc:  # any broken file is reported, the others still load
                     errors.append(f"{f.filename}: {exc}")
             if not session.alkanes and any(x.role == "alk" for x in session.files.values()):
                 try:
                     session.auto_alkanes()
                 except EditError:
                     pass
-            return jsonify(ok=True, added=added, errors=errors, **state())
+            return jsonify(ok=True, added=added, replaced=replaced, errors=errors, **state())
 
     @bp.post("/api/files/role")
     @handler
@@ -110,15 +121,15 @@ def create_blueprint(session: Session) -> Blueprint:
     @bp.post("/api/run")
     @handler
     def run(body):
-        session.update_params(body.get("params") or {})
+        rejected = session.update_params(body.get("params") or {})
         session.run()
-        return {"table": session.table_json()} | state()
+        return {"table": session.table_json(), "rejected": rejected} | state()
 
     @bp.post("/api/view")
     @handler
     def view(body):
-        session.update_params(body.get("params") or {}, stage="view")
-        return {"table": session.table_json()}
+        rejected = session.update_params(body.get("params") or {}, stage="view")
+        return {"table": session.table_json(), "rejected": rejected, "params": session.params.to_dict()}
 
     @bp.get("/api/table")
     @handler
@@ -149,13 +160,13 @@ def create_blueprint(session: Session) -> Blueprint:
             row = a.fill_missing(int(body["uid"]))
             message, focus = row.edits[-1], row.uid
         elif action == "merge":
-            row = a.merge([int(u) for u in body.get("uids", [])])
+            row = a.merge(uid_list(body.get("uids")))
             message, focus = "Sloučeno.", row.uid
         elif action == "split":
             parts = a.split(int(body["uid"]), number(body["at"], "at"))
             message, focus = "Rozděleno na " + " a ".join(p.label for p in parts) + ".", parts[0].uid
         elif action == "delete":
-            row = a.set_deleted(int(body["uid"]), bool(body.get("deleted", True)))
+            row = a.set_deleted(int(body["uid"]), flag(body.get("deleted", True)))
             message, focus = ("Řádek smazán." if row.deleted else "Řádek obnoven."), row.uid
         elif action == "note":
             row = a.set_note(int(body["uid"]), str(body.get("note", "")))

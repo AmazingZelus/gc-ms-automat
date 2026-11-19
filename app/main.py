@@ -142,7 +142,8 @@ def main() -> int:
 
     tracker = ClientTracker(settings=settings)
     app = create_app(token=token, tracker=tracker, port=port)
-    server = create_server(app, sockets=[sock], threads=4)
+    # Uploads of many .CDF files at once: allow request bodies up to 2 GB.
+    server = create_server(app, sockets=[sock], threads=4, max_request_body_size=2 * 1024 ** 3)
 
     # This starts the watchdog that stops the app when the browser is gone.
     start_watchdog(tracker, stop_process)

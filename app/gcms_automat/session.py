@@ -8,6 +8,7 @@ answers requests in several threads.
 from __future__ import annotations
 
 import math
+import re
 import threading
 from dataclasses import dataclass
 
@@ -15,7 +16,7 @@ import numpy as np
 
 from .analysis.cdf import Run, read_cdf
 from .analysis.params import PARAMETERS, AnalysisParams
-from .analysis.retention import Alkane, find_alkanes, parse_alkane_table
+from .analysis.retention import Alkane, check_alkanes, find_alkanes, parse_alkane_table
 from .analysis.spectra import MzAxis
 from .analysis.table import STATUS_LABELS, Analysis, Cell, EditError, Row, replicate_group, view_filter
 
@@ -45,14 +46,16 @@ class Session:
         self.dirty = False  # files/parameters changed since the last computation
 
     # ------------------------------------------------------------ files
-    def add_file(self, filename: str, data: bytes) -> str:
-        """Read one .CDF file; a file with the same name replaces the old one."""
+    def add_file(self, filename: str, data: bytes) -> tuple[str, bool]:
+        """Read one .CDF file; returns (name, replaced). Same name replaces the old file."""
         name = clean_name(filename)
         run = read_cdf(data, name)
-        role = "alk" if "alk" in name.lower() else "sample"
+        replaced = name in self.files
+        # "alkany_std", "alk-mix", "C8-C20_alkanes" -> alkane standard; "alkohol_1" is not.
+        role = "alk" if re.search(r"(^|[_\-\s])alk(an\w*)?([_\-\s\d]|$)|alkan", name, re.IGNORECASE) else "sample"
         self.files[name] = LoadedFile(run, role)
         self.dirty = True
-        return name
+        return name, replaced
 
     def set_role(self, name: str, role: str) -> None:
         if name not in self.files or role not in ROLES:
@@ -95,13 +98,18 @@ class Session:
         runs = [f.run for f in self.files.values() if f.role == "alk"]
         if not runs:
             raise EditError("Označ aspoň jeden soubor jako „Alkany“.")
-        found = find_alkanes(runs, MzAxis.covering(runs), self.params.baseline_window_min, self.params.smooth_points)
+        found = find_alkanes(runs, MzAxis.covering(runs), self.params.baseline_log_lambda, self.params.smooth_points,
+                             self.params.alkane_min_molecular_ion_pct)
         if not found:
             raise EditError("V souborech alkanů jsem žádné n-alkany nenašel. Zadej časy ručně.")
         self._apply_alkanes(found)
         return len(found)
 
     def _apply_alkanes(self, alkanes: list[Alkane]) -> None:
+        # This refuses an inconsistent alkane list (it would give wrong RI silently).
+        problem = check_alkanes(alkanes)
+        if problem:
+            raise EditError("Alkany nepoužity: " + problem)
         # This recomputes RI of the current result at once (no full re-run needed).
         self.alkanes = sorted(alkanes, key=lambda a: a.rt)
         if self.analysis is not None:
@@ -113,16 +121,19 @@ class Session:
         return [{"carbons": a.carbons, "rt": a.rt, "source": a.source} for a in self.alkanes]
 
     # ------------------------------------------------------------ computation
-    def update_params(self, values: dict, stage: str | None = None) -> None:
-        """Take over parameter values (only those of `stage`, if given)."""
-        merged = self.params.to_dict()
-        for info in PARAMETERS:
-            if info.key in values and (stage is None or info.stage == stage):
-                merged[info.key] = values[info.key]
-        new = AnalysisParams.from_dict(merged)
+    def update_params(self, values: dict, stage: str | None = None) -> list[str]:
+        """Take over parameter values (only those of `stage`, if given).
+
+        Returns the labels of rejected (invalid) values; those keep their old value.
+        """
+        wanted = {i.key: values[i.key] for i in PARAMETERS
+                  if i.key in values and (stage is None or i.stage == stage)}
+        rejected: list[str] = []
+        new = AnalysisParams.from_dict(wanted, base=self.params, rejected=rejected)
         if any(getattr(new, i.key) != getattr(self.params, i.key) for i in PARAMETERS if i.stage == "pipeline"):
             self.dirty = True
         self.params = new
+        return rejected
 
     def run(self) -> None:
         runs = [f.run for name, f in sorted(self.files.items(), key=lambda x: _natural_key(x[0])) if f.role == "sample"]

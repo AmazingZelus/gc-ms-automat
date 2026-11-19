@@ -90,6 +90,18 @@
     }
   }
 
+  // ---- This shows the values the server really uses (invalid input keeps the old value) ----
+  // stage "view": only view parameters are taken over (pipeline ones typed but not
+  // yet computed must stay in the form until Vyhodnotit).
+  function syncParams(r, stage) {
+    if (r.params) {
+      for (const p of state.meta) if (!stage || p.stage === stage) state.params[p.key] = r.params[p.key];
+      fillForm();
+    }
+    if (r.rejected && r.rejected.length)
+      say("run-status", "Neplatná hodnota, ponechána původní: " + r.rejected.join(", ") + ".", "err");
+  }
+
   // ---- This reacts to a changed parameter: view ones apply at once, others need Vyhodnotit ----
   let viewTimer = null;
   function changed(p, value) {
@@ -102,8 +114,10 @@
   }
   async function applyView() {
     if (!state.table) return;
-    try { const r = await api("/api/view", { params: state.params }); setTable(r.table); }
-    catch (e) { say("run-status", e.message, "err"); }
+    try {
+      const r = await api("/api/view", { params: state.params });
+      syncParams(r, "view"); setTable(r.table);
+    } catch (e) { say("run-status", e.message, "err"); }
   }
   $("reset").addEventListener("click", () => {
     for (const p of state.meta) state.params[p.key] = state.defaults[p.key];
@@ -127,8 +141,11 @@
     try {
       const r = await api("/api/files", form);
       setState(r);
-      say("load-status", r.errors.length ? "Nepodařilo se načíst: " + r.errors.join("; ")
-        : `Načteno ${r.added.length} souborů.`, r.errors.length ? "err" : "ok");
+      const parts = [];
+      if (r.added.length) parts.push(`Načteno ${r.added.length} souborů.`);
+      if (r.replaced.length) parts.push(`Nahrazeno souborem se stejným názvem: ${r.replaced.join(", ")}.`);
+      if (r.errors.length) parts.push("Nepodařilo se načíst: " + r.errors.join("; "));
+      say("load-status", parts.join(" "), r.errors.length || r.replaced.length ? "err" : "ok");
     } catch (e) { say("load-status", "Nahrání selhalo: " + e.message, "err"); }
   }
 
@@ -173,8 +190,12 @@
     t.appendChild(body); wrap.innerHTML = ""; wrap.appendChild(t);
   }
   async function saveAlkanes() {
-    try { setState(await api("/api/alkanes", { alkanes: state.alkanes })); await refreshTable(); }
-    catch (e) { say("alk-status", e.message, "err"); }
+    try { setState(await api("/api/alkanes", { alkanes: state.alkanes })); say("alk-status", ""); await refreshTable(); }
+    catch (e) {
+      // Refused (e.g. repeated carbon number): show the error and the alkanes really in use.
+      say("alk-status", e.message, "err");
+      setState(await api("/api/state"));
+    }
   }
   $("alk-add").addEventListener("click", () => {
     const last = state.alkanes[state.alkanes.length - 1];
@@ -199,8 +220,9 @@
     const btn = $("run"); btn.disabled = true; btn.textContent = "Počítám…"; say("run-status", "");
     try {
       const r = await api("/api/run", { params: state.params });
-      setState(r); state.sel = null; state.checked.clear(); setTable(r.table);
+      setState(r); state.sel = null; state.checked.clear(); state.split = null; setSplitUi(); setTable(r.table);
       say("run-status", `Hotovo: ${r.table.n_visible} látek v tabulce.`, "ok");
+      syncParams(r);
     } catch (e) { say("run-status", e.message, "err"); }
     finally { btn.textContent = "Vyhodnotit"; btn.disabled = !state.files.some((f) => f.role === "sample"); }
   });
@@ -275,7 +297,7 @@
       if (e.target.checked) state.checked.add(uid); else state.checked.delete(uid);
       updateSelection(); return;
     }
-    state.sel = uid; state.view.centre = null; state.highlight = null; state.split = null;
+    state.sel = uid; state.view.centre = null; state.highlight = null; state.split = null; setSplitUi();
     document.querySelectorAll("#results tr.sel").forEach((x) => x.classList.remove("sel"));
     tr.classList.add("sel"); say("r-msg", "");
     loadDetail(true);

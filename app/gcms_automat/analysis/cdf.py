@@ -15,6 +15,10 @@ from scipy import sparse
 from scipy.io import netcdf_file
 
 
+# Plausible nominal m/z range of GC-MS data (EI quadrupoles scan ~10-1050).
+MZ_LIMITS = (1, 2000)
+
+
 @dataclass
 class Run:
     """One GC-MS run (one injected sample), with nominal-mass spectra.
@@ -76,6 +80,13 @@ def read_cdf(source, name: str) -> Run:
         raise ValueError("Poškozený soubor: počty bodů ve skenech nesedí s daty.")
     if scan_time_s.size == 0 or masses.size == 0:
         raise ValueError("Soubor neobsahuje žádné skeny.")
+    # This rejects damaged values (they would break the m/z axis or the time axis).
+    if not (np.all(np.isfinite(masses)) and np.all(np.isfinite(intensities)) and np.all(np.isfinite(scan_time_s))):
+        raise ValueError("Poškozený soubor: neplatné číslo (NaN/nekonečno) v datech.")
+    if masses.min() < MZ_LIMITS[0] or masses.max() > MZ_LIMITS[1]:
+        raise ValueError(f"Hodnoty m/z mimo rozsah {MZ_LIMITS[0]}–{MZ_LIMITS[1]} (poškozený soubor?).")
+    if np.any(np.diff(scan_time_s) <= 0):
+        raise ValueError("Časy skenů nejsou rostoucí (poškozený soubor?).")
 
     # This builds a sparse scans x nominal-m/z matrix (duplicates are summed).
     nominal = np.rint(masses).astype(np.int64)
