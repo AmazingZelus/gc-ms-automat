@@ -4,7 +4,7 @@ The browser page sends a "heartbeat" every few seconds. The server stops when:
   * the user clicks "Ukončit" (explicit shutdown), or
   * all browser tabs are closed (each tab says goodbye when closing, then a short
     grace period lets a page reload reconnect), or
-  * no heartbeat arrived for a long time (e.g. the browser crashed), or
+  * no heartbeat arrived for a very long time (e.g. the browser crashed), or
   * no browser connected at all shortly after start.
 """
 
@@ -19,9 +19,12 @@ from dataclasses import dataclass, field
 class LifecycleSettings:
     """Timeouts in seconds (s)."""
 
-    # Browsers slow down timers in background tabs (Chrome: down to once per
-    # minute), so the heartbeat timeout must be comfortably longer than 60 s.
-    heartbeat_timeout_s: float = 150.0
+    # Normal closing is detected by the tab's goodbye message (closing_grace_s).
+    # The heartbeat timeout is only a safety net for a crashed browser, so it is
+    # long: browsers slow down or freeze background tabs (Chrome: timers once per
+    # minute; Edge "sleeping tabs" freeze a tab completely after ~2 h), and the
+    # app must not stop while the user is just working in another program.
+    heartbeat_timeout_s: float = 4 * 60 * 60.0
     # After a tab says goodbye, wait this long for a reload/new tab to reconnect.
     closing_grace_s: float = 8.0
     # Stop if no browser connects at all within this time after start
@@ -56,6 +59,12 @@ class ClientTracker:
             if client_id in self._expires_at:
                 self._expires_at[client_id] = self.clock() + self.settings.closing_grace_s
 
+    def extend_all(self, seconds: float) -> None:
+        """Give every open tab extra time (used after the computer wakes from sleep)."""
+        with self._lock:
+            floor = self.clock() + seconds
+            self._expires_at = {cid: max(t, floor) for cid, t in self._expires_at.items()}
+
     def request_shutdown(self) -> None:
         """The user clicked 'Ukončit'."""
         with self._lock:
@@ -79,12 +88,25 @@ class ClientTracker:
             return None
 
 
-def start_watchdog(tracker: ClientTracker, on_exit, interval_s: float = 1.0) -> threading.Thread:
+def start_watchdog(tracker: ClientTracker, on_exit, interval_s: float = 1.0,
+                   wake_gap_s: float = 30.0, wake_grace_s: float = 60.0,
+                   clock=time.monotonic) -> threading.Thread:
     """Check once per interval whether to stop; call on_exit(reason) when it is time."""
     # This runs in the background and calls on_exit exactly once.
     def loop() -> None:
+        last_check = clock()
         while True:
-            reason = tracker.exit_reason()
+            try:
+                # This detects that the computer was asleep (a check came much later
+                # than planned) and gives the browser tabs time to reconnect first.
+                now = clock()
+                if now - last_check > wake_gap_s:
+                    tracker.extend_all(wake_grace_s)
+                last_check = now
+
+                reason = tracker.exit_reason()
+            except Exception as exc:  # never let the watchdog die silently
+                reason = f"internal watchdog error: {exc!r}"
             if reason:
                 on_exit(reason)
                 return

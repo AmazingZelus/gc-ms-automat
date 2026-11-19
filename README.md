@@ -12,16 +12,16 @@ Aplikace pro zpracování dat z GC-MS. Běží na vašem počítači, **nic se n
 
 ## 1. Stažení
 
-1. Otevřete stránku **[Releases](../../releases/latest)** tohoto repozitáře.
+1. Otevřete stránku **[Releases](https://github.com/AmazingZelus/gc-ms-automat/releases/latest)**.
 2. V části *Assets* stáhněte soubor `GC-MS-Automat-vX.Y.Z-windows-x64.zip`.
 
 ## 2. Rozbalení
 
 1. *(Doporučeno)* Klikněte na stažený ZIP pravým tlačítkem → **Vlastnosti** → dole zaškrtněte **Odblokovat** → **OK**. Windows se pak při spuštění nebude ptát (viz bod 4).
-2. Klikněte na ZIP pravým tlačítkem → **Extrahovat vše…** → **Extrahovat**.
-3. Rozbalit můžete kamkoli, kam smíte zapisovat (Dokumenty, Plocha, flash disk…). Nerozbalujte ale do `C:\Program Files`, tam aplikace nemůže ukládat výsledky.
+2. Klikněte na ZIP pravým tlačítkem → **Extrahovat vše…** → **Extrahovat**. Vznikne složka `GC-MS-Automat-vX.Y.Z-windows-x64` a v ní hned `spustit.bat`.
+3. Rozbalit můžete kamkoli, kam smíte zapisovat (Plocha, Dokumenty, flash disk…). Nerozbalujte ale do `C:\Program Files`, tam aplikace nemůže ukládat výsledky.
 
-**Tip:** Volte spíš krátkou cestu (např. `C:\GCMS` nebo `Dokumenty`). Windows má limit 260 znaků na délku cesty k souboru, takže ve velmi hluboko vnořených složkách může rozbalení selhat.
+**Tip:** Volte spíš krátkou cestu, ideálně třeba `C:\GCMS`. Windows má limit 260 znaků na délku cesty k souboru a cesta k cílové složce může mít nejvýše asi 100 znaků. Pozor hlavně na složky synchronizované přes OneDrive s dlouhým názvem (např. `C:\Users\jmeno\OneDrive - Dlouhý název univerzity\Dokumenty\…`), tam může rozbalení selhat.
 
 **Aplikaci nespouštějte přímo z otevřeného ZIPu**, vždy ji nejdřív rozbalte.
 
@@ -41,6 +41,8 @@ Při prvním spuštění se může objevit modré okno **„Systém Windows ochr
 
 Varování se většinou ukáže jen jednou. Pokud jste ZIP před rozbalením odblokovali (bod 2.1), neukáže se vůbec.
 
+**Bez tlačítka „Přesto spustit“?** Na některých počítačích s Windows 11 je zapnuté **Inteligentní řízení aplikací** (Smart App Control). To nepodepsané programy blokuje úplně a tlačítko „Přesto spustit“ nenabídne. Pomůže odblokování ZIPu *před* rozbalením (bod 2.1): smažte rozbalenou složku, ZIP odblokujte a rozbalte znovu. Pokud ani to nepomůže, obraťte se na správce IT.
+
 Pokud zdroji nevěříte, zdrojový kód je celý veřejně v tomto repozitáři a ZIP sestavuje automaticky GitHub (viz záložka *Actions*). U každé verze je uveden i kontrolní součet SHA-256.
 
 ## 5. Práce s aplikací
@@ -58,7 +60,7 @@ Aplikace se ukončí sama, když:
 
 - kliknete na **Ukončit** (vpravo nahoře), nebo
 - zavřete kartu či okno prohlížeče (asi do 10 sekund), nebo
-- prohlížeč dlouho nereaguje (asi 2,5 minuty).
+- se k ní prohlížeč několik hodin nepřipojí (např. po pádu prohlížeče).
 
 Ukončit ji můžete i zavřením černého okna.
 
@@ -68,7 +70,8 @@ Ukončit ji můžete i zavřením černého okna.
 |---|---|
 | Hláška „Nenalezen soubor python\python.exe“ | ZIP není rozbalený, nebo chybí část souborů. Rozbalte ho znovu (bod 2). |
 | Prohlížeč se neotevřel | V černém okně je celá adresa (`http://127.0.0.1:…/?token=…`). Zkopírujte ji do prohlížeče. Funguje jen během tohoto spuštění. |
-| „Aplikace už neběží“ | Aplikace se ukončila (např. po dlouhé neaktivitě karty). Spusťte znovu `spustit.bat`. |
+| „Aplikace neodpovídá“ | Aplikace se ukončila (zavřené černé okno, tlačítko Ukončit, nebo karta byla několik hodin uspaná prohlížečem). Spusťte znovu `spustit.bat`. Pokud jen probouzíte počítač, chvíli vyčkejte, karta se připojí sama. |
+| „Tato karta patří k dřívějšímu spuštění“ | Prohlížeč obnovil starou kartu. Zavřete ji a použijte kartu, kterou otevřel `spustit.bat`. |
 | Export hlásí „Soubor nelze uložit“ | Složka je jen pro čtení (např. `Program Files` nebo síťový disk). Přesuňte aplikaci do Dokumentů. |
 | Antivir hlásí problém | Jde o nepodepsaný program. Obraťte se na správce IT, kód je veřejný. |
 | Něco jiného | Pošlete autorce soubor `logs\gcms-automat.log` ze složky aplikace. |

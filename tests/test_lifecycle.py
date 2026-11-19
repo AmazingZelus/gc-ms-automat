@@ -69,8 +69,44 @@ def test_stops_when_heartbeats_stop():
     assert t.exit_reason() is not None
 
 
+def test_wakeup_from_sleep_extends_tabs():
+    clock, t = make()
+    t.heartbeat("a")
+    clock.now = 500  # computer slept, heartbeat expired meanwhile
+    t.extend_all(60)
+    assert t.exit_reason() is None
+    clock.now = 561
+    assert t.exit_reason() is not None
+
+
+def test_default_timeout_survives_frozen_background_tab():
+    clock = FakeClock()
+    t = ClientTracker(clock=clock)  # default settings
+    t.heartbeat("a")
+    clock.now = 60 * 60  # tab frozen for one hour, no heartbeat
+    assert t.exit_reason() is None
+
+
 def test_quit_button():
     _, t = make()
     t.heartbeat("a")
     t.request_shutdown()
     assert t.exit_reason() is not None
+
+
+def test_watchdog_reports_internal_errors():
+    import threading
+    from gcms_automat.lifecycle import start_watchdog
+
+    class Broken:
+        def exit_reason(self):
+            raise RuntimeError("boom")
+
+        def extend_all(self, seconds):
+            pass
+
+    done = threading.Event()
+    reasons = []
+    start_watchdog(Broken(), lambda r: (reasons.append(r), done.set()), interval_s=0.01)
+    assert done.wait(2)
+    assert "boom" in reasons[0]

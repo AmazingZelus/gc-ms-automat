@@ -18,8 +18,9 @@ function Fail([string] $message) { Write-Host "SMOKE TEST FAILED: $message"; exi
 # ---- This extracts the ZIP into a deliberately "difficult" folder name ----
 $base = Join-Path $env:RUNNER_TEMP "Zkouška s mezerou (1) ěščřžýáíé"
 if (Test-Path -LiteralPath $base) { Remove-Item -LiteralPath $base -Recurse -Force }
-Expand-Archive -LiteralPath $ZipPath -DestinationPath $base
-$appDir = (Get-ChildItem -LiteralPath $base -Directory | Select-Object -First 1).FullName
+# Like Windows "Extract all": into a folder named after the ZIP (ZIP has no top folder).
+$appDir = Join-Path $base ([System.IO.Path]::GetFileNameWithoutExtension($ZipPath))
+Expand-Archive -LiteralPath $ZipPath -DestinationPath $appDir
 $bat = Join-Path $appDir "spustit.bat"
 $python = Join-Path $appDir "python\python.exe"
 Write-Host "App folder: $appDir"
@@ -90,6 +91,14 @@ try {
     $api = "http://127.0.0.1:$port/api"
     if ($port -eq 8765) { Fail "busy port 8765 was not avoided" }
     Write-Host "Started on fallback port $port"
+
+    # This checks that the packaged UI files are served (and contain no internet links).
+    foreach ($page in @("/", "/static/app.js", "/static/style.css")) {
+        $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$port$page" -UseBasicParsing
+        if ($resp.StatusCode -ne 200) { Fail "$page returned $($resp.StatusCode)" }
+        if ($resp.Content -match "https?://") { Fail "$page contains an http(s) link" }
+        if (-not ($resp.Headers["Content-Security-Policy"] -match "default-src 'self'")) { Fail "$page missing CSP" }
+    }
 
     $info = Invoke-RestMethod -Uri "$api/info" -Headers $headers
     if ($info.version -ne $ExpectedVersion) { Fail "version $($info.version) != $ExpectedVersion" }

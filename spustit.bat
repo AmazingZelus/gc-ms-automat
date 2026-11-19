@@ -25,7 +25,8 @@ echo.
 
 rem This starts the application and waits until it ends.
 "python\python.exe" "app\main.py"
-if errorlevel 1 goto :failed
+rem Any exit code other than 0 is an error (also negative crash codes).
+if not "%errorlevel%"=="0" goto :failed
 popd
 exit /b 0
 

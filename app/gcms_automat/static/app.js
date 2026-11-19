@@ -6,7 +6,8 @@ const TOKEN = new URLSearchParams(window.location.search).get("token") || "";
 const CLIENT_ID = (crypto.randomUUID ? crypto.randomUUID()
   : String(Date.now()) + Math.random().toString(16).slice(2));
 const HEARTBEAT_INTERVAL_MS = 5000;
-let serverGone = false;
+let serverGone = false;     // true = this tab can never work again (quit or old key)
+let infoLoaded = false;
 
 // ---- This is a helper for calling the local API ----
 async function api(path, body) {
@@ -19,25 +20,45 @@ async function api(path, body) {
   let data = {};
   try { data = await response.json(); } catch (e) { /* not JSON */ }
   if (!response.ok || data.ok === false) {
-    throw new Error(data.error || ("Chyba serveru (" + response.status + ")"));
+    const error = new Error(data.error || ("Chyba serveru (" + response.status + ")"));
+    error.status = response.status;
+    throw error;
   }
   return data;
 }
 
-// ---- This shows the "app is not running" banner and disables the buttons ----
-function markServerGone() {
+// ---- This shows or hides the "app is not running" banner ----
+function setBanner(text) {
+  const banner = document.getElementById("offline-banner");
+  banner.hidden = !text;
+  if (text) banner.textContent = text;
+  document.querySelectorAll("button, select").forEach((el) => { el.disabled = Boolean(text); });
+}
+
+// ---- This marks the tab as permanently unusable (after Ukončit or with an old key) ----
+function markServerGone(text) {
   serverGone = true;
-  document.getElementById("offline-banner").hidden = false;
-  document.querySelectorAll("button, select").forEach((el) => { el.disabled = true; });
+  setBanner(text);
 }
 
 // ---- This tells the server every few seconds that this tab is still open ----
+// A failed heartbeat (e.g. right after the computer wakes up) is NOT fatal:
+// the banner is shown and the next heartbeat tries again.
 async function sendHeartbeat() {
   if (serverGone) return;
   try {
     await api("/api/heartbeat", { cid: CLIENT_ID });
+    setBanner("");
+    if (!infoLoaded) loadInfo().catch(() => {});
   } catch (e) {
-    markServerGone();
+    if (e.status === 403) {
+      // The key belongs to an earlier start of the app (e.g. the browser restored an old tab).
+      markServerGone("Tato karta patří k dřívějšímu spuštění aplikace. Zavřete ji a použijte kartu, " +
+        "kterou otevřel spustit.bat.");
+    } else {
+      setBanner("Aplikace neodpovídá. Pokud jste ji ukončili, spusťte znovu spustit.bat. " +
+        "Jinak vyčkejte, zkouším se znovu připojit…");
+    }
   }
 }
 
@@ -52,6 +73,8 @@ function sayGoodbye() {
 // ---- This loads the app name, version and library versions ----
 async function loadInfo() {
   const info = await api("/api/info");
+  if (infoLoaded) return;
+  infoLoaded = true;
   document.title = info.app + " v" + info.version;
   document.getElementById("app-name").textContent = info.app;
   document.getElementById("app-version").textContent = "verze " + info.version;
@@ -99,9 +122,7 @@ async function onOpenFolderClick() {
 // ---- This is the "Ukončit" button ----
 async function onQuitClick() {
   try { await api("/api/shutdown", {}); } catch (e) { /* server may already be gone */ }
-  markServerGone();
-  document.getElementById("offline-banner").textContent =
-    "Aplikace byla ukončena. Tuto kartu můžete zavřít.";
+  markServerGone("Aplikace byla ukončena. Tuto kartu můžete zavřít.");
 }
 
 // ---- This wires everything together when the page loads ----
@@ -111,7 +132,8 @@ document.getElementById("btn-quit").addEventListener("click", onQuitClick);
 window.addEventListener("pagehide", sayGoodbye);
 // If the browser restores this page from its cache (Back button), reconnect at once.
 window.addEventListener("pageshow", (event) => { if (event.persisted) sendHeartbeat(); });
+// When the user comes back to this tab (e.g. after sleep), check the connection at once.
+document.addEventListener("visibilitychange", () => { if (!document.hidden) sendHeartbeat(); });
 
 sendHeartbeat();
 setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
-loadInfo().catch(markServerGone);

@@ -3,3 +3,8 @@ build/
 dist/
 __pycache__/
 *.pyc
+.pytest_cache/
+# Created when the app runs from the repository (may contain local paths/names)
+exporty/
+logs/
+runtime/

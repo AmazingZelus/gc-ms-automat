@@ -66,3 +66,12 @@ def test_beacon_with_token_in_url(client):
 def test_shutdown_sets_flag(client):
     client.post("/api/shutdown", base_url=BASE, headers=auth())
     assert client.tracker.exit_reason() is not None
+
+
+def test_odd_requests_give_clean_errors(client):
+    # Non-ASCII token -> 403 (not a crash); malformed JSON bodies -> 400 or default.
+    assert client.get("/api/info", base_url=BASE, headers={"X-App-Token": "ž"}).status_code == 403
+    r = client.post("/api/export-test", base_url=BASE, headers=auth(), json={"csv_format": ["x"]})
+    assert r.status_code == 400
+    r = client.post("/api/export-test", base_url=BASE, headers=auth(), json=["x"])
+    assert r.status_code == 200  # falls back to the default format

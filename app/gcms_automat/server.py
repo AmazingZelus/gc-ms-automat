@@ -45,7 +45,8 @@ def create_app(token: str, tracker: ClientTracker, port: int, exports_dir=EXPORT
         if request.path.startswith("/api/"):
             # sendBeacon (used when a tab closes) cannot send headers -> query param allowed.
             given = request.headers.get("X-App-Token") or request.args.get("token", "")
-            if not secrets.compare_digest(given, token):
+            # Compared as bytes, so unusual characters give 403 instead of a crash.
+            if not secrets.compare_digest(given.encode("utf-8", "replace"), token.encode("utf-8")):
                 abort(403)
 
     # ---- This adds security and no-cache headers to every response ----
@@ -100,9 +101,11 @@ def create_app(token: str, tracker: ClientTracker, port: int, exports_dir=EXPORT
     # ---- This is the "Export test" button: writes a small CSV with the header ----
     @app.post("/api/export-test")
     def export_test():
-        payload = request.get_json(silent=True) or {}
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            payload = {}
         csv_format = payload.get("csv_format", DEFAULT_CSV_FORMAT)
-        if csv_format not in CSV_FORMATS:
+        if not isinstance(csv_format, str) or csv_format not in CSV_FORMATS:
             return jsonify(ok=False, error=f"Neznámý formát CSV: {csv_format}"), 400
         try:
             path = write_csv_export(make_test_table(), exports_dir, "export_test", csv_format)

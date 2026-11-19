@@ -4,6 +4,12 @@ Windows wheels. Run after changing requirements/runtime.in:
     python tools/make_lock.py
 
 Works on any operating system (it downloads the Windows wheels for the check).
+
+Limitation: pip evaluates "Windows-only" dependency markers for the machine it
+runs on. A dependency needed only on Windows can therefore be missing from the
+lock when run on Linux/macOS. The CI unit-test step installs the lock on Windows
+with --require-hashes and fails in that case; then add the missing package to
+runtime.in explicitly and re-run this script.
 """
 
 import hashlib
