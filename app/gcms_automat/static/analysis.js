@@ -215,9 +215,19 @@
   });
 
   // ================================================================ computation
-  // ---- This is the Vyhodnotit button ----
+  // ---- This is the Vyhodnotit button (asks first if manual edits would be lost) ----
+  let armTimer = null;
   $("run").addEventListener("click", async () => {
-    const btn = $("run"); btn.disabled = true; btn.textContent = "Počítám…"; say("run-status", "");
+    const btn = $("run");
+    const edited = state.table ? state.table.rows.filter((r) => r.edits.length || r.note).length : 0;
+    if (edited && !btn.dataset.armed) {
+      btn.dataset.armed = "1"; btn.textContent = `Opravdu? Zahodí ruční úpravy (${edited} řádků)`;
+      clearTimeout(armTimer);
+      armTimer = setTimeout(() => { delete btn.dataset.armed; btn.textContent = "Vyhodnotit"; }, 6000);
+      return;
+    }
+    delete btn.dataset.armed; clearTimeout(armTimer);
+    btn.disabled = true; btn.textContent = "Počítám…"; say("run-status", "");
     try {
       const r = await api("/api/run", { params: state.params });
       setState(r); state.sel = null; state.checked.clear(); state.split = null; setSplitUi(); setTable(r.table);
@@ -327,8 +337,10 @@
     try { const r = await api("/api/undo", {}); setTable(r.table); say("r-msg", r.message, "ok"); }
     catch (e) { say("r-msg", e.message, "err"); }
   });
-  $("w-apply").addEventListener("click", () => edit({ action: "window", uid: state.sel,
-    t0: parseFloat($("w-start").value), t1: parseFloat($("w-end").value) }));
+  // A highlighted sample = the window is changed only in that sample.
+  const windowEdit = (t0, t1) => edit({ action: "window", uid: state.sel, t0, t1,
+    samples: state.highlight ? [state.highlight] : null });
+  $("w-apply").addEventListener("click", () => windowEdit(parseFloat($("w-start").value), parseFloat($("w-end").value)));
   $("r-fill").addEventListener("click", () => edit({ action: "fill", uid: state.sel }));
   $("r-delete").addEventListener("click", () => {
     const row = currentRow(); if (row) edit({ action: "delete", uid: row.uid, deleted: !row.deleted });
@@ -478,7 +490,7 @@
     const d = state.drag; state.drag = null;
     if (!d || d.mode === "split" || !d.win) { draw(); return; }
     if (d.win[1] - d.win[0] < 0.003) { draw(); return; }   // a click, not a drag
-    edit({ action: "window", uid: state.sel, t0: d.win[0], t1: d.win[1] });
+    windowEdit(d.win[0], d.win[1]);
   };
   chrom.addEventListener("pointerup", endDrag);
   chrom.addEventListener("pointercancel", () => { state.drag = null; draw(); });
@@ -496,5 +508,11 @@
       if (st.has_result) await refreshTable();
     } catch (e) { setTimeout(start, 1000); }   // server not reachable yet: try again
   }
+  // ---- This asks before the tab is closed while there is a result (work in memory) ----
+  window.addEventListener("beforeunload", (e) => {
+    // (not after Ukončit / when the app is gone: then there is nothing left to keep)
+    if (state.table && !document.body.classList.contains("offline")) { e.preventDefault(); e.returnValue = ""; }
+  });
+
   start();
 })();

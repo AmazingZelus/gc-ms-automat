@@ -24,6 +24,10 @@ from .lifecycle import ClientTracker
 from .paths import EXPORTS_DIR, STATIC_DIR
 from .session import Session
 
+# Grace period after a tab closed while a result exists [s]: long enough for the
+# browser to restore an unloaded tab or for a reload; the console window stays open.
+WORK_GRACE_S = 120.0
+
 # This policy tells the browser: load scripts, styles, images and data ONLY from
 # this local server. Any accidental link to a CDN or the internet is blocked.
 CONTENT_SECURITY_POLICY = (
@@ -40,7 +44,8 @@ def create_app(token: str, tracker: ClientTracker, port: int, exports_dir=EXPORT
     # Uploads of many .CDF files at once (a 46-min run is ~2 MB): limit 2 GB.
     app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 ** 3
     from .api_analysis import create_blueprint
-    app.register_blueprint(create_blueprint(session or Session()))
+    session = session or Session()
+    app.register_blueprint(create_blueprint(session))
     allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
 
     # ---- This checks every request: correct Host, and the token for the API ----
@@ -95,7 +100,10 @@ def create_app(token: str, tracker: ClientTracker, port: int, exports_dir=EXPORT
 
     @app.post("/api/closing")
     def closing():
-        tracker.closing(_client_id())
+        # With a computed result the grace period is long: a browser that only
+        # unloads a background tab, or a page reload, must not cost the user's work
+        # (the server keeps the result; a reopened tab shows it again).
+        tracker.closing(_client_id(), WORK_GRACE_S if session.has_work else None)
         return jsonify(ok=True)
 
     # ---- This is the "Ukončit" button ----

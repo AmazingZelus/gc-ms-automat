@@ -24,11 +24,12 @@ class ParamInfo:
     unit: str
     help: str
     group: str
-    kind: str = "float"      # float | int | bool | ions
+    kind: str = "float"      # float | int | bool | ions | choice
     stage: str = "pipeline"  # pipeline | view
     minimum: float | None = None
     maximum: float | None = None
     step: float | None = None
+    options: tuple = ()      # for kind "choice": ((value, Czech label), ...)
 
 
 @dataclass
@@ -57,6 +58,15 @@ class AnalysisParams:
     # ... or where it disappears into the noise (below this many noise sigma),
     # whichever comes first. 1 sigma: below it the signal cannot be told from noise.
     window_end_noise_sigma: float = 1.0
+    # ... or where the signal flattens (slope below this % of the peak's steepest slope).
+    # 5 %: a Gaussian ends at 2.9 sigma (as with 1 % height); peaks on broad humps end
+    # at their own foot (tests: areas within 0.99-1.13). Trade-off: tails of strongly
+    # tailing peaks are cut (EMG tau/sigma 1.5 -> -4 %, 5 -> -8 %); 1 % keeps tails
+    # (-0.7 %) but counts humps (up to 5x too large).
+    window_end_slope_pct: float = 5.0
+    # Baseline under the peaks: "auto" = common baseline unless the peak/cluster ends on
+    # a hump; "drop" = always the common baseline; "chord" = always edge to edge.
+    integration_baseline: str = "auto"
     # Spectrum background: scans averaged just outside the window on each side.
     # 3 scans (~1 s at 0.35 s/scan) is close to the peak but averages the noise (previous version).
     spectrum_background_scans: int = 3
@@ -102,9 +112,9 @@ class AnalysisParams:
 
     # ---- Advanced: spectral similarity weighting ----
     # Similarity = cosine of (intensity^a * (m/z)^b) vectors. a = 0.5, b = 1 are the
-    # values of the previous version. TODO: ověřit zdroj (weighting of this type is
-    # described by Stein & Scott 1994, J. Am. Soc. Mass Spectrom.; exact optimal
-    # exponents to be checked against the paper).
+    # values of the previous version, NOT taken from a paper. TODO: ověřit zdroj -
+    # weighting of this type is studied by Stein & Scott 1994 (J. Am. Soc. Mass
+    # Spectrom. 5, 859), whose optimum is reportedly different (unverified).
     weight_intensity_power: float = 0.5
     weight_mz_power: float = 1.0
 
@@ -163,6 +173,10 @@ def _convert(info: ParamInfo, value: Any) -> Any:
         return int(round(float(value)))
     if info.kind == "ions":
         return parse_ions(value)
+    if info.kind == "choice":
+        if value not in [o[0] for o in info.options]:
+            raise ValueError("unknown option")
+        return value
     number = float(value)
     if number != number:  # NaN
         raise ValueError("NaN")
@@ -219,15 +233,26 @@ PARAMETERS: list[ParamInfo] = [
               stage="view", minimum=0, maximum=1, step=0.05),
     ParamInfo("baseline_log_lambda", "Tuhost baseline (log₁₀ λ)", "",
               "Baseline metodou arPLS (Baek a kol., 2015). Vyšší číslo = tužší, rovnější baseline. "
-              "Obvykle 6–8; na testovacích datech se plochy v tomto rozsahu mění o méně než 1 %.",
+              "Obvykle 6–8. Na syntetických datech se plochy v tomto rozsahu mění o méně než 1 %; na reálných "
+              "datech s hrboly se mohou plochy jednotlivých píků měnit víc, zkontroluj je v grafu.",
               "Pokročilé", minimum=3, maximum=11, step=0.5),
     ParamInfo("window_end_pct", "Konec okna píku", "% výšky",
               "Okno končí, kde signál klesne na toto % výšky píku nad baseline (1 % u Gaussova píku vynechá 0,4 % plochy), "
               "nebo v údolí k sousednímu píku (kolmice).",
-              "Pokročilé", minimum=0.1, maximum=50, step=0.5),
+              "Integrace", minimum=0.1, maximum=50, step=0.5),
     ParamInfo("window_end_noise_sigma", "Konec okna v šumu", "× šum (σ)",
               "… nebo kde signál zapadne do šumu (pod tento násobek σ šumu), podle toho, co nastane dřív.",
-              "Pokročilé", minimum=0, maximum=10, step=0.5),
+              "Integrace", minimum=0, maximum=10, step=0.5),
+    ParamInfo("window_end_slope_pct", "Konec okna při zploštění", "% max. sklonu",
+              "Okno skončí, když sklon signálu klesne pod toto % nejstrmějšího sklonu píku. 5 % = pík na "
+              "širokém hrbolu skončí u své paty. Nižší hodnota zachová delší ocasy chvostujících píků, "
+              "ale může započítat hrbol pod píkem. 0 = vypnuto.", "Integrace", minimum=0, maximum=50, step=1),
+    ParamInfo("integration_baseline", "Baseline pod píkem", "",
+              "Automaticky: od baseline, ale když pík (nebo shluk dotýkajících se píků) končí vysoko na hrbolu, "
+              "měří se nad spojnicí okrajů. Kolmice: vždy od společné baseline (hrbol se započítá do píků). "
+              "Spojnice: vždy nad spojnicí okrajů okna. Dotýkající se píky dělí kolmice v údolí.",
+              "Integrace", kind="choice",
+              options=(("auto", "automaticky"), ("drop", "kolmice k baseline"), ("chord", "spojnice okrajů"))),
     ParamInfo("spectrum_background_scans", "Pozadí spektra", "skenů",
               "Kolik skenů těsně před a za oknem se průměruje jako pozadí odečtené od spektra.",
               "Pokročilé", kind="int", minimum=0, maximum=50, step=1),
@@ -239,6 +264,7 @@ PARAMETERS: list[ParamInfo] = [
               "Pro automatické určení počtu uhlíků (po odečtení izotopu ¹³C fragmentu [M−H]⁺).",
               "Pokročilé", minimum=0, maximum=100, step=0.1),
     ParamInfo("weight_intensity_power", "Váha intenzity (exponent)", "",
-              "Shoda = kosinus vektorů intenzita^a × (m/z)^b.", "Pokročilé", minimum=0, maximum=3, step=0.1),
+              "Shoda = kosinus vektorů intenzita^a × (m/z)^b. Výchozí a = 0,5, b = 1 převzaty z předchozí "
+              "verze nástroje (zdroj neověřen).", "Pokročilé", minimum=0, maximum=3, step=0.1),
     ParamInfo("weight_mz_power", "Váha m/z (exponent)", "", "", "Pokročilé", minimum=0, maximum=3, step=0.1),
 ]

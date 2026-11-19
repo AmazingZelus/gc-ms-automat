@@ -18,7 +18,7 @@ from .align import PeakRef, align_peaks
 from .cdf import Run
 from .params import AnalysisParams
 from .retention import Alkane, retention_index
-from .signal import (ProcessedTrace, WindowRule, apex_in_window, integrate_window, pick_peaks,
+from .signal import (ProcessedTrace, WindowRule, apex_in_window, cluster_areas, integrate_window, pick_peaks,
                      process_trace, refine_apex)
 from .spectra import MzAxis, base_ion, is_co2_noise, peak_spectrum, similarity, top_ions
 
@@ -47,6 +47,8 @@ class Cell:
     snr: float = math.nan         # [-]
     similarity: float = math.nan  # to the row's reference spectrum [0-1]
     inside: bool = False          # apex is a real local maximum inside the window
+    base0: float = 0.0            # integration baseline at t0 [counts above the common baseline]
+    base1: float = 0.0            # ... and at t1
     source: str = ""              # where the window came from
     reason: str = ""              # why ND / remarks
 
@@ -100,7 +102,8 @@ class Analysis:
         self.names = [r.name for r in runs]
         self.data = {r.name: RunData(r, process_trace(r.rt_min, r.tic(), params.baseline_log_lambda,
                                                       params.smooth_points)) for r in runs}
-        self.rule = WindowRule(params.window_end_pct, params.window_end_noise_sigma)
+        self.rule = WindowRule(params.window_end_pct, params.window_end_noise_sigma,
+                               params.window_end_slope_pct, params.integration_baseline)
         self.rows: list[Row] = []
         self.stats: dict[str, int] = {}
         self._undo: list[tuple[list[Row], int, str]] = []
@@ -148,7 +151,7 @@ class Analysis:
                 reason = f"shoda spektra {cell.similarity:.2f} < {min_sim:g}"
             if reason:
                 return Cell(status="ND", source=source, reason=reason)
-        cell.area = integrate_window(data.trace, t0, t1)
+        cell.area = integrate_window(data.trace, t0, t1, self.rule)
         return cell
 
     def live_rows(self, exclude: list[Row] | None = None) -> list[Row]:
@@ -176,6 +179,23 @@ class Analysis:
             else:
                 t1 = min(t1, c.t0)
         return t0, t1
+
+    def reintegrate(self) -> None:
+        """Recompute all areas run by run: touching windows share one baseline line.
+
+        Called after the computation and after every edit, so the area of a peak
+        always follows the integrator rule for its current neighbours.
+        """
+        for name in self.names:
+            trace = self.data[name].trace
+            live = [(r, r.cells[name]) for r in self.rows if not r.deleted
+                    and r.cells[name].has_window and r.cells[name].area is not None]
+            lines: list = []
+            areas = cluster_areas(trace, [(c.t0, c.t1) for _, c in live], self.rule, lines)
+            for (row, cell), area, (b0, b1) in zip(live, areas, lines):
+                cell.area, cell.base0, cell.base1 = area, b0, b1
+        for row in self.rows:
+            self.refresh(row)
 
     def consensus_window(self, row: Row) -> tuple[float, float]:
         """Median window of the row's cells that have a window [min]."""
@@ -276,6 +296,7 @@ class Analysis:
                         self.stats["filled" if cell.status == "fill" else "fill_failed"] += 1
                 self.refresh(row)
 
+        self.reintegrate()
         # ---- This numbers the rows by retention time ----
         for row in self.rows:
             row.uid = self._new_uid()
@@ -330,25 +351,46 @@ class Analysis:
         return row
 
     # ------------------------------------------------------------ manual edits
-    def set_window(self, uid: int, t0: float, t1: float) -> Row:
-        """Use [t0, t1] in every run where the row has an area."""
+    def set_window(self, uid: int, t0: float, t1: float, samples: list[str] | None = None) -> tuple[Row, list[str]]:
+        """Use the window [t0, t1] for the row; returns (row, runs where it was clipped).
+
+        samples=None: every run where the row has an area, each shifted by that run's
+        own retention shift (apex - row RT), so drifting runs keep the peak inside.
+        samples=[...]: only those runs, exactly [t0, t1] (window of one sample).
+        In every run the window is clipped at neighbouring rows' windows (it may
+        touch them, never overlap); refused if nothing is left in some run.
+        """
         row = self.live_row(uid)
         if not t1 > t0:
             raise EditError("Konec okna musí být větší než začátek.")
-        targets = [n for n in self.names if row.cells[n].has_window]
+        if samples:
+            unknown = [n for n in samples if n not in self.names]
+            if unknown:
+                raise EditError("Neznámý vzorek: " + ", ".join(unknown))
+            targets = list(samples)
+        else:
+            targets = [n for n in self.names if row.cells[n].has_window]
         if not targets:
             raise EditError("Řádek nemá žádnou plochu. Použij „Integrovat i v ND“.")
-        conflicts = [f"{n} s řádkem {o.label}" for n in targets for o in self.overlaps(n, t0, t1, [row])]
-        if conflicts:
-            raise EditError("Okno nepoužito, překrývalo by se: " + "; ".join(conflicts) +
-                            ". Zuž okno, nebo nejdřív uprav sousední řádek.")
-        self._checkpoint(f"okno řádku {row.label}")
+        # This computes each run's window (shifted, then clipped at the neighbours).
+        windows, clipped = {}, []
         for n in targets:
-            row.cells[n] = self.evaluate(n, t0, t1, row.ref_spectrum, "man", "ruční okno")
-        row.edits.append(f"okno {t0:.3f}–{t1:.3f} min")
-        self.refresh(row)
+            c = row.cells[n]
+            shift = (c.apex_rt - row.rt) if (not samples and math.isfinite(c.apex_rt) and math.isfinite(row.rt)) else 0.0
+            a, b = t0 + shift, t1 + shift
+            ca, cb = self.clip_to_free(n, a, b, exclude=[row])
+            if not cb > ca + EPS:
+                raise EditError(f"Okno nepoužito: ve vzorku {n} je celé obsazené sousedním řádkem.")
+            if ca > a + EPS or cb < b - EPS:
+                clipped.append(n)
+            windows[n] = (ca, cb)
+        self._checkpoint(f"okno řádku {row.label}")
+        for n, (a, b) in windows.items():
+            row.cells[n] = self.evaluate(n, a, b, row.ref_spectrum, "man", "ruční okno")
+        row.edits.append(f"okno {t0:.3f}–{t1:.3f} min" + (f" ({', '.join(samples)})" if samples else ""))
+        self.reintegrate()
         self._sort_rows()
-        return row
+        return row, clipped
 
     def fill_missing(self, uid: int) -> Row:
         """Try to integrate the runs where the row is ND, in the row's median window."""
@@ -356,6 +398,8 @@ class Analysis:
         missing = [n for n in self.names if row.cells[n].status == "ND"]
         if not missing:
             raise EditError("Řádek nemá žádné ND.")
+        if not any(c.has_window for c in row.cells.values()):
+            raise EditError("Řádek nemá v žádném vzorku okno, není podle čeho dointegrovat. Nastav okno ručně.")
         self._checkpoint(f"dointegrace řádku {row.label}")
         window = self.consensus_window(row)
         for n in missing:
@@ -363,6 +407,7 @@ class Analysis:
         found = [n for n in missing if row.cells[n].status == "fill"]
         row.edits.append(f"dointegrace ND: {len(found)} z {len(missing)}")
         self.refresh(row)
+        self.reintegrate()
         return row
 
     def merge(self, uids: list[int]) -> Row:
@@ -391,6 +436,7 @@ class Analysis:
                 if n in windows else Cell(reason="žádný ze sloučených řádků tu neměl plochu")
         self.refresh(merged)
         self.rows = [r for r in self.rows if r not in rows] + [merged]
+        self.reintegrate()
         self._sort_rows()
         return merged
 
@@ -428,6 +474,7 @@ class Analysis:
             parts.append(part)
         index = self.rows.index(row)
         self.rows[index:index + 1] = parts
+        self.reintegrate()
         self._sort_rows()
         return parts
 
@@ -443,6 +490,7 @@ class Analysis:
         self._checkpoint(("obnovení" if not deleted else "smazání") + f" řádku {row.label}")
         row.deleted = deleted
         row.edits.append("smazáno ručně" if deleted else "obnoveno")
+        self.reintegrate()
         return row
 
     def set_note(self, uid: int, text: str) -> Row:

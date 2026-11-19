@@ -12,7 +12,7 @@ from gcms_automat.analysis.signal import estimate_noise
 from gcms_automat.analysis.spectra import MzAxis, similarity
 from gcms_automat.analysis.table import Analysis, EditError, replicate_group, view_filter
 
-from synthetic import A, B, C, CO2, alkane_compound, gaussian_area, make_run
+from synthetic import A, B, C, CO2, Compound, alkane_compound, gaussian_area, make_run
 
 SIGMA = 0.02  # peak sigma [min] = 1.2 s (typical capillary GC peak)
 
@@ -66,15 +66,40 @@ def test_gaussian_peak_area_matches_formula():
     assert row.rt == pytest.approx(3.0, abs=0.003)  # within half a scan
 
 
-@pytest.mark.parametrize("height", [200.0, 1000.0, 1e5])
-def test_small_peaks_are_not_inflated_by_noise(height):
-    # TIC S/N of the 200-count peak is ~40; even with a low detection limit (S/N 3)
-    # the baseline must run through the middle of the noise. Known area; tolerance
-    # 5 % (integrated noise scatter of the smallest peak ~2 %, Gaussian tail cut 1.4 %).
-    for seed in range(3):
+@pytest.mark.parametrize("height,single_tol,mean_tol", [(200.0, 0.15, 0.03), (1000.0, 0.05, 0.01), (1e5, 0.01, 0.005)])
+def test_peak_areas_have_no_bias(height, single_tol, mean_tol):
+    # Known area, 20 noise realisations, low detection limit (S/N 3). The 200-count
+    # peak has TIC S/N ~10 (scatter ~4 %): each run within 15 %, but the MEAN (= bias)
+    # within 3 %. Larger peaks: tighter. Window cut at 1 % height leaves out 0.4 %.
+    ratios = []
+    for seed in range(20):
         analysis = Analysis([make_run("s", [(A, 3.0, height, SIGMA)], seed=seed)], [], params(min_snr=3))
-        row = row_near(analysis, 3.0, tol=0.03)
-        assert row.cells["s"].area == pytest.approx(gaussian_area(height, SIGMA, A), rel=0.05)
+        ratios.append(row_near(analysis, 3.0, tol=0.03).cells["s"].area / gaussian_area(height, SIGMA, A))
+    assert all(abs(r - 1) < single_tol for r in ratios)
+    assert abs(np.mean(ratios) - 1) < mean_tol
+
+
+def test_peaks_on_a_broad_hump_get_their_own_area():
+    # Reviewer case: a broad hump (sigma 0.4 min, 5000 counts) with two small peaks
+    # on it. With the hump counted they came out 10-15x too large. Known areas;
+    # tolerance 15 % (the hump's slope under the peak foot is not exactly linear).
+    hump = Compound({300: 100})
+    for seed in range(3):
+        run = make_run("h", [(hump, 10.0, 5000, 0.4), (B, 9.8, 3000, SIGMA), (C, 10.3, 3000, SIGMA)], minutes=20, seed=seed)
+        analysis = Analysis([run], [], params())
+        assert row_near(analysis, 9.8).cells["h"].area == pytest.approx(gaussian_area(3000, SIGMA, B), rel=0.15)
+        assert row_near(analysis, 10.3).cells["h"].area == pytest.approx(gaussian_area(3000, SIGMA, C), rel=0.15)
+
+
+def test_tailing_peak_area_tradeoff_is_as_documented():
+    # Documented trade-off of the 5 % slope end (params.py): a tailing EMG peak with
+    # tau/sigma = 1.5 loses about 4 % of its tail, with the slope end off (0) ~0 %.
+    run = make_run("e", [(B, 5.0, 1e6, SIGMA, 0.03)], baseline=5000, noise=50)
+    default = row_near(Analysis([run], [], params()), 5.0, tol=0.05).cells["e"].area
+    no_slope = row_near(Analysis([run], [], params(window_end_slope_pct=0)), 5.0, tol=0.05).cells["e"].area
+    expected = gaussian_area(1e6, SIGMA, B)
+    assert default / expected == pytest.approx(0.956, abs=0.02)
+    assert no_slope / expected == pytest.approx(1.0, abs=0.01)
 
 
 def test_small_peak_next_to_a_big_one():
@@ -238,12 +263,34 @@ def test_check_alkanes():
 
 
 # ---------------------------------------------------------------- manual edits
-def test_window_overlapping_neighbour_is_refused():
+def test_window_over_a_neighbour_is_clipped_and_inside_it_refused():
     analysis = Analysis(three_runs(), [], params())
     b, c = row_near(analysis, 5.0), row_near(analysis, 5.15)
-    with pytest.raises(EditError):
-        analysis.set_window(b.uid, b.cells["r0"].t0, c.cells["r0"].t1)
+    _, clipped = analysis.set_window(b.uid, b.cells["r0"].t0 - 0.02, c.cells["r0"].t1)
+    assert set(clipped) == {"r0", "r1", "r2"}
     assert analysis.overlap_problems() == []
+    with pytest.raises(EditError):      # completely inside the neighbour's window
+        analysis.set_window(b.uid, 5.14, 5.16)
+
+
+def test_window_follows_each_runs_retention_shift():
+    # Runs shifted by 0, +0.01, -0.01 min: a window drawn around the mean RT is moved
+    # by each run's own shift, so every run keeps the whole peak (same area as before).
+    analysis = Analysis(three_runs(), [], params())
+    a = row_near(analysis, 3.0)
+    before = {n: c.area for n, c in a.cells.items()}
+    analysis.set_window(a.uid, a.rt - 0.1, a.rt + 0.1)
+    for n, c in row_near(analysis, 3.0).cells.items():
+        assert c.area == pytest.approx(before[n], rel=0.01)
+
+
+def test_window_for_one_sample_only():
+    analysis = Analysis(three_runs(), [], params())
+    a = row_near(analysis, 3.0)
+    other = a.cells["r1"].t0
+    analysis.set_window(a.uid, 2.95, 3.05, samples=["r0"])
+    row = row_near(analysis, 3.0)
+    assert row.cells["r0"].t0 == pytest.approx(2.95) and row.cells["r1"].t0 == other
 
 
 def test_split_labels_use_underscore_and_areas_add_up():

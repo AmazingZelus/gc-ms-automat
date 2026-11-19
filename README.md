@@ -58,7 +58,15 @@ Pokud zdroji nevěříte, zdrojový kód je celý veřejně v tomto repozitáři
    - **ruční úpravy:** tažení okna integrace, *Rozdělit pík* (vzniknou řádky `5_1` a `5_2`), *Sloučit vybrané* (zaškrtávátka v tabulce), *Integrovat i v ND*, *Smazat řádek*, vlastní poznámka. Tlačítko **Zpět** vrací poslední úpravu.
    - Okna integrace různých řádků se v jednom vzorku nikdy nepřekrývají. Úpravu, která by překryv způsobila, aplikace odmítne a napíše proč.
 
-**Plochy** jsou v jednotkách *counts × s* (TIC po odečtení baseline, lichoběžníkové pravidlo) a nejsou přímo totožné s plochami z ChemStationu.
+**Plochy** jsou v jednotkách *counts × s* (TIC po odečtení baseline, lichoběžníkové pravidlo) a nejsou přímo totožné s plochami z ChemStationu. Jak se integruje (nastavení *Integrace*):
+
+- Baseline celého chromatogramu: metoda arPLS (Baek a kol., 2015, Analyst 140, 250–257).
+- Okno píku končí, kde signál klesne skoro na baseline, kde se zploští (pík na širokém hrbolu), nebo v údolí k sousednímu píku. Sousední píky dělí kolmice v údolí.
+- Píky na širokém hrbolu se měří nad spojnicí svých okrajů, takže hrbol se jim nezapočítá. V grafu je ta baseline čárkovaně.
+- **Pozor u silně chvostujících píků:** s výchozím nastavením mohou přijít o několik % ocasu. Pro takové látky sniž „Konec okna při zploštění“ (např. na 1 %) a zkontroluj okno v grafu.
+- Saturovaný pík (plochý vrchol) se může rozpadnout na víc řádků: spoj je tlačítkem *Sloučit vybrané*.
+
+**Výsledek je jen v paměti:** zavřením aplikace nebo novým *Vyhodnotit* se ruční úpravy ztratí (aplikace se předtím zeptá). Export do Excelu přijde ve verzi 0.3.
 
 ## 6. Ukončení
 

@@ -154,8 +154,14 @@ def create_blueprint(session: Session) -> Blueprint:
         a = session.require()
         action = body.get("action")
         if action == "window":
-            row = a.set_window(int(body["uid"]), number(body["t0"], "t0"), number(body["t1"], "t1"))
-            message, focus = "Okno použito.", row.uid
+            samples = body.get("samples")
+            if samples is not None and (not isinstance(samples, list) or not all(isinstance(x, str) for x in samples)):
+                raise EditError("Seznam vzorků musí být seznam názvů.")
+            row, clipped = a.set_window(int(body["uid"]), number(body["t0"], "t0"), number(body["t1"], "t1"), samples)
+            message = "Okno použito" + (" (jen " + ", ".join(samples) + ")" if samples else "") + "."
+            if clipped:
+                message += " Oříznuto u sousedního řádku ve: " + ", ".join(clipped) + "."
+            focus = row.uid
         elif action == "fill":
             row = a.fill_missing(int(body["uid"]))
             message, focus = row.edits[-1], row.uid

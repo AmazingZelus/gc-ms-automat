@@ -109,8 +109,10 @@
                 <button id="s-cancel" class="btn btn-link" type="button">Zrušit</button>
               </span>
             </div>
-            <p class="help">Táhni okraje modrého pole, nebo tažením v grafu vyznač nové okno (platí pro všechny vzorky,
-              kde má řádek plochu). Okno se nesmí překrývat s oknem jiného řádku. Kolečko myši = zoom.</p>
+            <p class="help">Táhni okraje modrého pole, nebo tažením v grafu vyznač nové okno. Platí pro všechny vzorky,
+              kde má řádek plochu (posune se podle RT každého vzorku), a když je v seznamu „Vzorky“ jeden zvýrazněný,
+              jen pro něj. U sousedního řádku se okno ořízne. Čárkovaně = baseline, nad kterou se plocha měří.
+              Kolečko myši = zoom.</p>
             <div class="spectra">
               <div><p class="help" id="spec-ref-title">Referenční spektrum</p><canvas id="spec-ref" class="plot plot-spec"></canvas></div>
               <div><p class="help" id="spec-sel-title">Vyber vzorek v seznamu „Vzorky“</p><canvas id="spec-sel" class="plot plot-spec"></canvas></div>

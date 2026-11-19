@@ -71,7 +71,10 @@ Proč takto: Flask + waitress + čisté HTML/JS je nejjednodušší spolehlivá 
 
 - **Baseline:** arPLS z knihovny pybaselines (Baek a kol. 2015, Analyst 140, 250–257), tuhost log₁₀ λ = 7 (parametr). Vede středem šumu, drží se pod ocasy píků i pod hustými shluky. Dřívější klouzavé minimum/průměr dávalo u reálných dat záporné plochy a u malých píků systematickou chybu. Nevracet se k němu.
 - **Šum (pro S/N)** se odhaduje z NEvyhlazeného signálu (raw − baseline); z vyhlazeného vychází asi poloviční.
-- **Okno píku** (jako klasický integrátor): od vrcholu na obě strany, dokud signál neklesne pod max(1 % výšky, 1 σ šumu), nebo do údolí k sousednímu píku (kolmice). Sousední okna se dotýkají v údolí, nikdy se nepřekrývají.
+- **Okno píku** (jako klasický integrátor): od vrcholu na obě strany do PRVNÍHO z: signál < max(1 % výšky, 1 σ šumu); sklon < 5 % nejstrmějšího sklonu píku (pík na hrbolu skončí u své paty); údolí k sousednímu píku. Sousední okna se dotýkají v údolí, nikdy se nepřekrývají.
+- **Plocha** (`cluster_areas`): dotýkající se okna tvoří shluk; pod shlukem přímka od začátku do konce, v údolích kolmice. Režim „auto“: konce přímky na společné baseline, pokud shluk nekončí vysoko na hrbolu (pak na signálu). Ve všech ostatních místech se plochy přepočítávají přes `Analysis.reintegrate()` po každé úpravě.
+- **Známý kompromis** (parametr „Konec okna při zploštění“, výchozí 5 %): silně chvostující píky přijdou o část ocasu (EMG τ/σ 1,5 → −4 %, 5 → −8 %); s 0–1 % se ocas zachová, ale píky na hrbolech se nadhodnotí až 5×. Testy to hlídají (`test_tailing_peak_area_tradeoff_is_as_documented`).
+- **Neřešeno:** propady signálu pod baseline (výpadek detektoru) dělají falešné píky; saturovaný pík s plochým vrcholem se může rozpadnout na 2–3 řádky (ručně sloučit). Obojí je vidět v grafu.
 - Práh výšky (% největšího píku) se počítá jen uvnitř vyhodnocovaného RT rozsahu.
 - **Alkany automaticky:** M⁺ po odečtení izotopu ¹³C fragmentu na 14n+1. Alkany se slabým M⁺ se NEodhadují, uživatel je doplní.
 - **Váhy shody spekter** (intenzita^0,5 × m/z^1): `TODO: ověřit zdroj` (Stein & Scott 1994).
@@ -82,6 +85,7 @@ Proč takto: Flask + waitress + čisté HTML/JS je nejjednodušší spolehlivá 
 - Prohlížeč může neaktivní kartu „uvolnit“ a poslat přitom stejný signál jako při zavření (`pagehide`). Server se pak za 8 s ukončí, i když karta v liště zůstala. Teď to ničemu nevadí, ale s načtenými daty by se ztratila práce. Ověřit na skutečných prohlížečích ve Windows (Edge spící karty, Chrome Memory Saver, Firefox tab unloading) a případně přidat ukládání stavu nebo potvrzení.
 - Při pádu prohlížeče nepřijde žádné rozloučení a server běží (s viditelným černým oknem) až 4 h. Je to záměrný kompromis, aby se aplikace neukončila uživateli, který pracuje v jiném programu.
 - Dočasné soubory: do `runtime/tmp` se přesměrovává jen `tempfile` hlavního procesu. Podprocesy (např. scikit-learn s `n_jobs>1`, externí převodníky) dostanou systémový `%TEMP%`. Až se budou používat, předej jim `env` s `TEMP`/`TMP` = `runtime\tmp` (prohlížeči ne). Obsah `runtime/tmp` se zatím nemaže.
+- Od v0.2 drží server výsledek v paměti: po zavření karty s výsledkem čeká 120 s (WORK_GRACE_S), aby obnovená/přenačtená karta výsledek znovu načetla; prohlížeč se před zavřením karty s výsledkem zeptá. Uložení projektu na disk zatím není.
 - Ukončení přes `os._exit` neřeší rozběhnuté požadavky. Až budou exporty velké, zapisuj nejdřív do dočasného souboru a pak ho přejmenuj, nebo před ukončením počkej na dokončení.
 
 ## Co jde ověřit jen na skutečném Windows

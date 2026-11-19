@@ -118,6 +118,17 @@ const Plot = (() => {
         g.stroke();
       }
     }
+    // This draws the integration baseline of the selected row (dashed, per sample).
+    if (m.mode !== "raw") {
+      g.setLineDash([4, 3]); g.lineWidth = 1.5;
+      for (const win of m.windows) {
+        if (!win.own) continue;
+        const tr = m.traces.find((t) => t.name === win.sample);
+        if (!tr || (m.highlight && tr.name !== m.highlight)) continue;
+        g.strokeStyle = tr.style.color;
+        g.beginPath(); g.moveTo(X(win.t0), Y(win.base0)); g.lineTo(X(win.t1), Y(win.base1)); g.stroke();
+      }
+    }
     g.restore(); g.globalAlpha = 1; g.setLineDash([]);
 
     // This draws one thin lane per sample under the axis: its windows in this view.
@@ -168,6 +179,7 @@ const Plot = (() => {
     const placed = [];
     g.fillStyle = css("--text"); g.textAlign = "center";
     for (const k of order) {
+      if (spec.mz[k] < lo || spec.mz[k] > hi) continue;   // ion outside the shown range
       const x = X(spec.mz[k]);
       if (placed.some((p) => Math.abs(p - x) < 22)) continue;
       placed.push(x); g.fillText(spec.mz[k], x, Math.max(Y(spec.i[k]) - 4, 11));

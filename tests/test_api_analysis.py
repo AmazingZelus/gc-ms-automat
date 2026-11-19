@@ -79,8 +79,12 @@ def test_edits_and_undo(client):
 def test_refused_edit_gives_czech_message(client):
     rows = post(client, "/api/run", {"params": {}}).json["table"]["rows"]
     b = next(x for x in rows if abs(x["rt"] - 5.0) < 0.02)
+    # A window over the neighbour is clipped (message says where) ...
     r = post(client, "/api/edit", {"action": "window", "uid": b["uid"], "t0": 4.9, "t1": 5.3})
-    assert r.status_code == 400 and "překrývalo" in r.json["error"]
+    assert r.json["ok"] and "Oříznuto" in r.json["message"]
+    # ... one completely inside the neighbour is refused with a Czech explanation.
+    r = post(client, "/api/edit", {"action": "window", "uid": b["uid"], "t0": 5.14, "t1": 5.16})
+    assert r.status_code == 400 and "obsazené" in r.json["error"]
 
 
 def test_view_filter_does_not_recompute(client):

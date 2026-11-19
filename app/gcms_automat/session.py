@@ -78,13 +78,14 @@ class Session:
     # ------------------------------------------------------------ alkanes
     def set_alkanes(self, items: list[dict]) -> None:
         alkanes = []
-        for item in items:
+        for i, item in enumerate(items, start=1):
             try:
                 carbons, rt = int(item["carbons"]), float(item["rt"])
             except (KeyError, TypeError, ValueError):
-                continue
-            if carbons > 0 and rt > 0 and math.isfinite(rt):
-                alkanes.append(Alkane(carbons, rt, str(item.get("source") or "ručně")))
+                carbons, rt = 0, math.nan
+            if not (carbons > 0 and rt > 0 and math.isfinite(rt)):
+                raise EditError(f"Alkan na řádku {i}: zadej kladný počet uhlíků a RT.")
+            alkanes.append(Alkane(carbons, rt, str(item.get("source") or "ručně")))
         self._apply_alkanes(alkanes)
 
     def import_alkanes(self, text: str) -> int:
@@ -144,6 +145,11 @@ class Session:
         self.analysis = Analysis(runs, self.alkanes, self.params)
         self.dirty = False
 
+    @property
+    def has_work(self) -> bool:
+        """True when there is a computed result (losing it would cost the user work)."""
+        return self.analysis is not None
+
     def require(self) -> Analysis:
         if self.analysis is None:
             raise EditError("Nejdřív klikni na Vyhodnotit.")
@@ -202,7 +208,8 @@ class Session:
                 c = other.cells[name]
                 if c.has_window and c.t1 >= t0 and c.t0 <= t1:
                     windows.append({"uid": other.uid, "label": other.label, "sample": name,
-                                    "t0": c.t0, "t1": c.t1, "own": other is row})
+                                    "t0": c.t0, "t1": c.t1, "own": other is row,
+                                    "base0": round(c.base0, 1), "base1": round(c.base1, 1)})
         cw = a.consensus_window(row)
         return {"row": self._row_json(a, row, ""), "traces": traces, "windows": windows,
                 "window": [cw[0], cw[1]], "spectrum": _spectrum_json(a.axis, row.ref_spectrum)}

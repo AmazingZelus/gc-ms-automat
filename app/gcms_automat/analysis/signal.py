@@ -48,17 +48,37 @@ class Peak:
 
 @dataclass(frozen=True)
 class WindowRule:
-    """Where a peak's integration window ends (both user parameters).
+    """How a peak's integration window and its baseline are set (user parameters).
 
-    The window ends, on each side, where the signal falls to the HIGHER of
-      end_pct     % of the peak's height above the baseline (1 % = 2.9 sigma for
-                  a Gaussian peak, which leaves out 0.4 % of its area), and
-      noise_sigma x noise (the peak has disappeared into the noise; stops small
-                  peaks from wandering into the noise, which would bias them).
+    The window ends, on each side, at the FIRST of:
+      * the signal falls below max(end_pct % of the peak height, noise_sigma x noise),
+      * the signal flattens: its slope falls below slope_pct % of the peak's
+        steepest slope on that side (checked only after the steepest point).
+        For a Gaussian, 5 % of the maximum slope is reached at 2.9 sigma, the same
+        place as 1 % of the height; on a broad hump the peak ends at its own foot
+        instead of running down the hump's flank,
+      * the lowest point towards the neighbouring peak (valley).
+    Area (see cluster_areas): peaks whose windows touch form a cluster; the area
+    is measured above a straight line from the cluster start to its end, with
+    perpendicular drops at the valleys inside. baseline_mode decides where the
+    line starts/ends: "auto" = on the common baseline, unless the cluster ends
+    clearly above it (above the end level, i.e. on a hump), then on the signal;
+    "drop" = always on the common baseline (humps are counted in the peaks);
+    "chord" = always on the signal at the window edges.
     """
 
     end_pct: float = 1.0
     noise_sigma: float = 1.0
+    slope_pct: float = 5.0
+    baseline_mode: str = "auto"
+
+    def level(self, height: float, noise: float) -> float:
+        """End level [counts]: max(end_pct % of the height, noise_sigma x noise)."""
+        return max(self.end_pct / 100.0 * height, self.noise_sigma * noise)
+
+
+# Scan interval the default baseline stiffness was tested with [s] (user's instrument).
+REFERENCE_SCAN_S = 0.35
 
 
 def estimate_noise(y: np.ndarray) -> float:
@@ -99,37 +119,49 @@ def process_trace(rt_min: np.ndarray, raw: np.ndarray, baseline_log_lambda: floa
     if raw.size < 10:
         baseline = np.full(raw.size, float(np.median(raw)) if raw.size else 0.0)
     else:
-        baseline = Baseline(np.arange(raw.size)).arpls(raw, lam=10.0 ** baseline_log_lambda)[0]
+        # lambda acts per scan; the smoothing span of a 2nd-order penalty scales as
+        # lambda^(1/4) scans, so lambda is scaled by (REFERENCE_SCAN_S / scan interval)^4
+        # to mean the same stiffness IN TIME on instruments with other scan rates.
+        scan_s = float(np.median(np.diff(rt_min))) * 60.0 if rt_min.size > 1 else REFERENCE_SCAN_S
+        lam = 10.0 ** baseline_log_lambda * (REFERENCE_SCAN_S / scan_s) ** 4
+        baseline = Baseline(np.arange(raw.size)).arpls(raw, lam=lam)[0]
     corrected = _smooth(raw - baseline, smooth_points)
     return ProcessedTrace(rt_min, raw, baseline, corrected, estimate_noise(raw - baseline))
+
+
+def _side_end(y: np.ndarray, slope: np.ndarray, level: float, slope_pct: float) -> int:
+    """Index (from 0 = apex) where one side of a peak ends; y/slope run from the apex
+    outwards, up to the neighbouring apex; slope > 0 means falling away from the apex."""
+    valley = int(np.argmin(y))
+    candidates = [valley]
+    below = np.flatnonzero(y[:valley + 1] < level)
+    if below.size:
+        candidates.append(int(below[0]))
+    if slope_pct > 0 and valley > 1:
+        steepest = int(np.argmax(slope[:valley + 1]))
+        flat = np.flatnonzero(slope[steepest:valley + 1] < slope_pct / 100.0 * slope[steepest])
+        if flat.size:
+            candidates.append(steepest + int(flat[0]))
+    return min(candidates)
 
 
 def _peak_windows(y: np.ndarray, threshold: float, rule: WindowRule, noise: float) -> list[tuple[int, int, int]]:
     """(start, apex, end) scan indices of peaks with prominence >= threshold.
 
-    Peaks are found with scipy.signal.find_peaks (prominence). The window is then
-    found like in a classical integrator, separately on each side of the apex:
-    walk away from the apex until EITHER the signal (already baseline-corrected,
-    so measured from the baseline) falls below the end level (WindowRule) OR the
-    lowest point towards the neighbouring peak is reached ("drop line" at the
-    valley). So unresolved neighbours share the valley exactly: no gap, no overlap.
+    Peaks are found with scipy.signal.find_peaks (prominence); window ends: see
+    WindowRule. Neighbouring windows meet at most at the valley: never overlap.
     """
     apexes, _ = find_peaks(y, prominence=threshold)
+    slope = np.gradient(y)  # [counts per scan]
     windows = []
     for k, apex in enumerate(apexes):
-        level = max(rule.end_pct / 100.0 * float(y[apex]), rule.noise_sigma * noise)
-        # Right side: search up to the next apex (or the end of the run).
+        level = rule.level(float(y[apex]), noise)
+        # Right side: from the apex to the next apex (or the end of the run).
         stop = int(apexes[k + 1]) if k < apexes.size - 1 else y.size - 1
-        segment = y[apex:stop + 1]
-        valley = int(np.argmin(segment))
-        below = np.flatnonzero(segment[:valley + 1] < level)
-        end = apex + (int(below[0]) if below.size else valley)
-        # Left side: search back to the previous apex (or the start of the run).
+        end = apex + _side_end(y[apex:stop + 1], -slope[apex:stop + 1], level, rule.slope_pct)
+        # Left side: from the apex back to the previous apex (or the start).
         stop = int(apexes[k - 1]) if k > 0 else 0
-        segment = y[stop:apex + 1][::-1]
-        valley = int(np.argmin(segment))
-        below = np.flatnonzero(segment[:valley + 1] < level)
-        start = apex - (int(below[0]) if below.size else valley)
+        start = apex - _side_end(y[stop:apex + 1][::-1], slope[stop:apex + 1][::-1], level, rule.slope_pct)
         if end - start >= 2:
             windows.append((int(start), int(apex), int(end)))
     return windows
@@ -150,20 +182,76 @@ def refine_apex(rt_min: np.ndarray, y: np.ndarray, i: int) -> float:
     return float(rt_min[i])
 
 
-def integrate_window(trace: ProcessedTrace, t0: float, t1: float) -> float:
-    """Area of the corrected signal between t0 and t1 [counts * s].
+def _area_above(trace: ProcessedTrace, t0: float, t1: float, line) -> float:
+    """Area of (corrected signal - line(t)) between t0 and t1 [counts * s].
 
-    Trapezoidal rule; the window edges are linearly interpolated, so the area
-    does not jump when an edge moves between two scans. Time converted min -> s.
+    Trapezoidal rule; the window edges are linearly interpolated, so the area does
+    not jump when an edge moves between two scans. Time converted min -> s.
     """
     if not t1 > t0:
         return 0.0
     rt, y = trace.rt_min, trace.corrected
-    # This takes the scans inside the window plus interpolated edge points.
     inside = (rt > t0) & (rt < t1)
     t = np.concatenate(([t0], rt[inside], [t1]))
     v = np.concatenate(([np.interp(t0, rt, y)], y[inside], [np.interp(t1, rt, y)]))
-    return float(trapezoid(v, t * 60.0))
+    return float(trapezoid(v - line(t), t * 60.0))
+
+
+def cluster_areas(trace: ProcessedTrace, windows: list[tuple[float, float]], rule: WindowRule,
+                  lines: list | None = None) -> list[float]:
+    """Areas of several windows of ONE run, as a classical integrator does it [counts * s].
+
+    Windows that touch (end of one = start of the next) form a cluster. Under a
+    cluster a straight baseline runs from its start T0 to its end T1; inside, the
+    peaks are separated by perpendicular drops at the shared edges. Line ends:
+        a = signal(T) if baseline_mode == "chord", or ("auto" and signal(T) > level)
+        a = 0         otherwise (= the common arPLS baseline)
+    level = rule.level(highest point of the cluster, noise). So an isolated peak or
+    a cluster that returns to the baseline is measured from the baseline, and one
+    that ends on a hump is measured above the hump.
+    If `lines` is a list, it receives for each window the baseline height at its
+    start and end [counts] (to draw it in the chromatogram).
+    """
+    order = sorted(range(len(windows)), key=lambda i: windows[i][0])
+    areas = [0.0] * len(windows)
+    ends = [(0.0, 0.0)] * len(windows)
+    rt, y = trace.rt_min, trace.corrected
+    group: list[int] = []
+
+    def close(group: list[int]) -> None:
+        # This computes the cluster's baseline line and the area of each member.
+        t_start, t_end = windows[group[0]][0], windows[group[-1]][1]
+        inside = (rt >= t_start) & (rt <= t_end)
+        height = float(y[inside].max()) if inside.any() else 0.0
+        level = rule.level(height, trace.noise)
+
+        def anchor(t: float) -> float:
+            value = float(np.interp(t, rt, y))
+            if rule.baseline_mode == "chord" or (rule.baseline_mode == "auto" and value > level):
+                return value
+            return 0.0
+        a0, a1 = anchor(t_start), anchor(t_end)
+        span = (t_end - t_start) or 1.0
+        line = lambda t: a0 + (a1 - a0) * (t - t_start) / span  # noqa: E731
+        for i in group:
+            areas[i] = _area_above(trace, windows[i][0], windows[i][1], line)
+            ends[i] = (float(line(windows[i][0])), float(line(windows[i][1])))
+
+    for i in order:
+        if group and windows[i][0] > windows[group[-1]][1] + 1e-6:
+            close(group)
+            group = []
+        group.append(i)
+    if group:
+        close(group)
+    if lines is not None:
+        lines[:] = ends
+    return areas
+
+
+def integrate_window(trace: ProcessedTrace, t0: float, t1: float, rule: WindowRule = WindowRule()) -> float:
+    """Area of a single window (a cluster of one), see cluster_areas [counts * s]."""
+    return cluster_areas(trace, [(t0, t1)], rule)[0] if t1 > t0 else 0.0
 
 
 def pick_peaks(trace: ProcessedTrace, min_height_pct: float, min_snr: float,
@@ -184,10 +272,11 @@ def pick_peaks(trace: ProcessedTrace, min_height_pct: float, min_snr: float,
         apex_rt = refine_apex(rt, y, apex)
         if not (rt_min <= apex_rt <= rt_max):
             continue
-        t0, t1 = float(rt[start]), float(rt[end])
-        peaks.append(Peak(apex=apex, start=start, end=end, rt=apex_rt, t0=t0, t1=t1,
-                          height=float(y[apex]), snr=float(y[apex] / trace.noise),
-                          area=integrate_window(trace, t0, t1)))
+        peaks.append(Peak(apex=apex, start=start, end=end, rt=apex_rt, t0=float(rt[start]),
+                          t1=float(rt[end]), height=float(y[apex]), snr=float(y[apex] / trace.noise), area=0.0))
+    # This integrates all peaks of the run together (clusters share one baseline line).
+    for peak, area in zip(peaks, cluster_areas(trace, [(p.t0, p.t1) for p in peaks], rule)):
+        peak.area = area
     return peaks
 
 

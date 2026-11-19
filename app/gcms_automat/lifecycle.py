@@ -54,11 +54,12 @@ class ClientTracker:
             self._had_client = True
             self._expires_at[client_id] = self.clock() + self.settings.heartbeat_timeout_s
 
-    def closing(self, client_id: str) -> None:
-        """A tab is closing: let it expire after the short grace period."""
+    def closing(self, client_id: str, grace_s: float | None = None) -> None:
+        """A tab is closing: let it expire after the grace period (default: settings)."""
         with self._lock:
             if client_id in self._expires_at:
-                self._expires_at[client_id] = self.clock() + self.settings.closing_grace_s
+                grace = self.settings.closing_grace_s if grace_s is None else grace_s
+                self._expires_at[client_id] = self.clock() + grace
 
     def extend_all(self, seconds: float) -> None:
         """Give every open tab extra time (used after the computer wakes from sleep)."""
