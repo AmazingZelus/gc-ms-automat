@@ -43,6 +43,15 @@
       wrap.className = "check";
       wrap.innerHTML = `<input id="${id}" type="checkbox"><label for="${id}">${esc(p.label)}<small>${esc(p.help)}</small></label>`;
       wrap.querySelector("input").addEventListener("change", (e) => changed(p, e.target.checked));
+    } else if (p.kind === "choice") {
+      // A choice from a fixed list (e.g. the baseline under the peaks).
+      wrap.className = "field wide";
+      wrap.innerHTML = `<label for="${id}">${esc(p.label)}</label><select id="${id}"></select><small>${esc(p.help)}</small>`;
+      const sel = wrap.querySelector("select");
+      for (const [value, label] of p.options) {
+        const o = document.createElement("option"); o.value = value; o.textContent = label; sel.appendChild(o);
+      }
+      sel.addEventListener("change", () => changed(p, sel.value));
     } else if (p.kind === "ions") {
       // m/z list: typed into the box, applied only after Enter (the analyst confirms).
       wrap.className = "field wide";
@@ -77,6 +86,7 @@
       const el = $("p-" + p.key); if (!el) continue;
       if (p.kind === "bool") el.checked = !!state.params[p.key];
       else if (p.kind === "ions") renderChips(p);
+      else if (p.kind === "choice") el.value = state.params[p.key];
       else el.value = state.params[p.key];
     }
   }
