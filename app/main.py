@@ -13,6 +13,7 @@ import os
 import secrets
 import socket
 import sys
+import tempfile
 import threading
 import webbrowser
 from pathlib import Path
@@ -81,6 +82,31 @@ def write_server_info(port: int, token: str, url: str) -> None:
         log.warning("Nelze zapsat %s: %s", SERVER_INFO_FILE, exc)
 
 
+def isolate_from_app_folder() -> None:
+    """Keep temp files inside the app folder, but don't let the browser 'hold' the folder.
+
+    The browser started by this program inherits its working folder and
+    environment. If that were the app folder, Windows would refuse to delete or
+    move it (or safely eject a USB stick) until the browser is closed.
+    """
+    # This sends Python's own temporary files to <app>/runtime/tmp (if writable).
+    try:
+        tmp = RUNTIME_DIR / "tmp"
+        tmp.mkdir(parents=True, exist_ok=True)
+        tempfile.tempdir = str(tmp)
+    except OSError:
+        pass  # read-only folder: keep the system temp folder
+    # This moves the working folder away from the app folder (all our paths are absolute).
+    neutral = os.environ.get("SystemRoot") or str(Path.home())
+    try:
+        os.chdir(neutral)
+    except OSError:
+        pass
+    # This removes Python-only settings so the browser does not inherit them.
+    for name in ("PYTHONUTF8", "PYTHONNOUSERSITE"):
+        os.environ.pop(name, None)
+
+
 def stop_process(reason: str) -> None:
     """Stop the whole program immediately (the console window then closes)."""
     # This cleans up, flushes the log and exits with code 0 (= normal end).
@@ -95,6 +121,7 @@ def stop_process(reason: str) -> None:
 
 def main() -> int:
     setup_logging()
+    isolate_from_app_folder()
     log.info("%s v%s se spouští...", APP_NAME, __version__)
 
     # This reads optional settings used only by the automatic tests.

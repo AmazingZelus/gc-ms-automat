@@ -17,14 +17,14 @@ jobs:
   build-windows:
     runs-on: windows-latest
     timeout-minutes: 40
-    permissions:
-      contents: write   # needed only for the release step (runs on version tags)
     defaults:
       run:
         shell: pwsh
     steps:
       # This gets the code.
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false   # the build never needs to push anything
 
       # This installs the same Python minor version as the portable one (3.14).
       - uses: actions/setup-python@v6
@@ -84,21 +84,40 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      # This creates the GitHub Release (only for tags like v0.1.0) with the ZIP and checksum.
+  # This job has write access, so it runs no third-party code: it only downloads
+  # the tested ZIP and (for version tags) publishes it. On other pushes it only
+  # checks that the artifact can be downloaded, so the release path is tested too.
+  release:
+    needs: build-windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Show files
+        run: ls -l dist && test -n "$(ls dist/*.zip)" && test -n "$(ls dist/*.sha256)"
+
+      # This creates the GitHub Release (only for tags like v0.1.0); re-running
+      # the workflow re-uploads the files instead of failing.
       - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
         run: |
-          $zip = (Get-ChildItem dist/*.zip | Select-Object -First 1).FullName
-          $sha = "$zip.sha256"
-          $hash = (Get-Content $sha).Split(" ")[0]
-          $notes = @(
-            "Přenosná verze pro Windows (64bit). Stáhněte ZIP, rozbalte (Extrahovat vše) a spusťte spustit.bat. Podrobný návod je v README.",
-            "",
-            "SHA-256 ZIPu: ``$hash``"
-          ) -join "`n"
-          $notesFile = Join-Path $env:RUNNER_TEMP "release-notes.md"
-          Set-Content -LiteralPath $notesFile -Value $notes -Encoding utf8
-          gh release create "${{ github.ref_name }}" $zip $sha --repo "${{ github.repository }}" --title "GC-MS Automat ${{ github.ref_name }}" --notes-file $notesFile
-          if ($LASTEXITCODE -ne 0) { throw "gh release create failed" }
+          set -euo pipefail
+          hash=$(cut -d' ' -f1 dist/*.sha256)
+          printf '%s\n\n%s\n' \
+            "Přenosná verze pro Windows (64bit). Stáhněte ZIP, rozbalte (Extrahovat vše) a spusťte spustit.bat. Podrobný návod je v README." \
+            "SHA-256 ZIPu: \`${hash}\`" > notes.md
+          if gh release view "$TAG" --repo "$REPO" > /dev/null 2>&1; then
+            gh release upload "$TAG" dist/*.zip dist/*.sha256 --repo "$REPO" --clobber
+          else
+            gh release create "$TAG" dist/*.zip dist/*.sha256 --repo "$REPO" \
+              --title "GC-MS Automat $TAG" --notes-file notes.md
+          fi

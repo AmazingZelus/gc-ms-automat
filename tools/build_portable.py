@@ -3,7 +3,7 @@
     python tools/build_portable.py            # downloads the embeddable Python
     python tools/build_portable.py --embed-zip path/to/python-embed.zip
 
-Result: dist/GC-MS-Automat-v<version>-windows-x64.zip containing
+Result: dist/GC-MS-Automat-v<version>-windows-x64.zip containing directly:
     GC-MS-Automat-v<version>/
         spustit.bat        <- the user double-clicks this
         README.md
@@ -138,9 +138,11 @@ def precompile(dest: Path) -> None:
     # UNCHECKED_HASH: the .pyc is used as is, regardless of file dates. Normal .pyc
     # files compare the source file date, which ZIP extraction changes (time zone,
     # 2-second rounding), so they would be recompiled on every PC anyway.
-    for folder in (dest / "python" / "Lib" / "site-packages", dest / "app"):
-        compileall.compile_dir(folder, quiet=1, workers=0,
-                               invalidation_mode=py_compile.PycInvalidationMode.UNCHECKED_HASH)
+    # Our own app/ code uses CHECKED_HASH instead, so an edited .py file is noticed.
+    compileall.compile_dir(dest / "python" / "Lib" / "site-packages", quiet=1, workers=0,
+                           invalidation_mode=py_compile.PycInvalidationMode.UNCHECKED_HASH)
+    compileall.compile_dir(dest / "app", quiet=1, workers=0,
+                           invalidation_mode=py_compile.PycInvalidationMode.CHECKED_HASH)
 
 
 def make_zip(source_dir: Path, zip_path: Path) -> None:
@@ -179,12 +181,12 @@ def main() -> None:
     copy_app(stage)
     precompile(stage)
 
-    # This checks the longest path inside the ZIP. Windows allows 260 characters
-    # in total; Explorer extracts into "<folder>\<zip name>\", so the user's folder
-    # gets 260 - 1 - len(zip name without .zip) - 1 - longest characters.
+    # This checks the longest path inside the ZIP. Windows allows 259 characters
+    # (260 including the end-of-string mark); Explorer extracts into "<folder>\<zip name>\", so the user's folder
+    # gets 259 - 1 - len(zip name without .zip) - 1 - longest characters.
     zip_name = f"{name}-windows-x64"
     longest = max(len(p.relative_to(stage).as_posix()) for p in stage.rglob("*"))
-    budget = 260 - 1 - len(zip_name) - 1 - longest
+    budget = 259 - 1 - len(zip_name) - 1 - longest
     print(f"Longest path inside ZIP: {longest} characters; "
           f"room left for the user's folder: {budget} characters")
     if budget < 100:

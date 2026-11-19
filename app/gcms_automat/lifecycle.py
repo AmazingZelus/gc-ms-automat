@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 
@@ -37,7 +38,7 @@ class ClientTracker:
     """Keeps track of open browser tabs (clients) and their last heartbeat."""
 
     settings: LifecycleSettings = field(default_factory=LifecycleSettings)
-    clock: callable = time.monotonic
+    clock: Callable[[], float] = time.monotonic
     _expires_at: dict = field(default_factory=dict)
     _had_client: bool = False
     _shutdown_requested: bool = False

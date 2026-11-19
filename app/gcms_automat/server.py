@@ -117,8 +117,8 @@ def create_app(token: str, tracker: ClientTracker, port: int, exports_dir=EXPORT
     # ---- This opens the exports folder in Windows Explorer ----
     @app.post("/api/open-exports")
     def open_exports():
-        exports_dir.mkdir(parents=True, exist_ok=True)
         try:
+            exports_dir.mkdir(parents=True, exist_ok=True)
             if sys.platform == "win32":
                 os.startfile(exports_dir)  # noqa: S606 (opens a local folder only)
             elif sys.platform == "darwin":

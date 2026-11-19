@@ -46,7 +46,7 @@ if ($LASTEXITCODE -ne 0) { Fail "library check failed" }
 # ---- Helper: is any python.exe from our folder still running? ----
 function Get-AppProcesses {
     Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" |
-        Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($appDir) }
+        Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($appDir, [System.StringComparison]::OrdinalIgnoreCase) }
 }
 
 # ---- Helper: start spustit.bat (from another working dir) and wait for server.json ----
@@ -90,6 +90,8 @@ try {
     $headers = @{ "X-App-Token" = $app.Info.token }
     $api = "http://127.0.0.1:$port/api"
     if ($port -eq 8765) { Fail "busy port 8765 was not avoided" }
+    # This proves the "is python still running?" check can actually see our process.
+    if (-not (Get-AppProcesses)) { Fail "running app process not detected (process check is broken)" }
     Write-Host "Started on fallback port $port"
 
     # This checks that the packaged UI files are served (and contain no internet links).

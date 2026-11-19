@@ -12,12 +12,10 @@ pushd "%~dp0"
 rem This stops early if the ZIP was not extracted (Python is missing).
 if not exist "python\python.exe" goto :not_extracted
 
-rem This keeps Python isolated: no user packages, UTF-8, temp files inside the app folder.
+rem This keeps Python isolated: no user packages, UTF-8 text files.
+rem (Temp files are redirected inside Python, so the browser is not affected.)
 set "PYTHONNOUSERSITE=1"
 set "PYTHONUTF8=1"
-if not exist "runtime\tmp" mkdir "runtime\tmp"
-set "TEMP=%CD%\runtime\tmp"
-set "TMP=%CD%\runtime\tmp"
 
 title GC-MS Automat
 echo Spoustim GC-MS Automat... Toto okno nezavirejte, zavre se samo.

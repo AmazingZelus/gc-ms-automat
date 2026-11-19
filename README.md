@@ -8,7 +8,7 @@ Aplikace pro zpracování dat z GC-MS. Běží na vašem počítači, **nic se n
 
 - Windows 10 nebo 11 (64bit)
 - libovolný prohlížeč (Edge, Chrome, Firefox)
-- asi 250 MB místa na disku
+- asi 400 MB volného místa na disku (stažený ZIP + rozbalená aplikace)
 
 ## 1. Stažení
 

@@ -61,6 +61,12 @@ Proč takto: Flask + waitress + čisté HTML/JS je nejjednodušší spolehlivá 
 2. Commit a push do `main`. Počkej, až CI projde.
 3. `git tag vX.Y.Z && git push origin vX.Y.Z`. CI ověří, že tag odpovídá verzi, sestaví a otestuje ZIP a vytvoří GitHub Release.
 
+## Známá omezení ukončování (vyřešit, než aplikace začne držet data v paměti)
+
+- Prohlížeč může neaktivní kartu „uvolnit“ a poslat přitom stejný signál jako při zavření (`pagehide`). Server se pak za 8 s ukončí, i když karta v liště zůstala. Teď to ničemu nevadí, ale s načtenými daty by se ztratila práce. Ověřit na skutečných prohlížečích ve Windows (Edge spící karty, Chrome Memory Saver, Firefox tab unloading) a případně přidat ukládání stavu nebo potvrzení.
+- Při pádu prohlížeče nepřijde žádné rozloučení a server běží (s viditelným černým oknem) až 4 h. Je to záměrný kompromis, aby se aplikace neukončila uživateli, který pracuje v jiném programu.
+- Ukončení přes `os._exit` neřeší rozběhnuté požadavky. Až budou exporty velké, zapisuj nejdřív do dočasného souboru a pak ho přejmenuj, nebo před ukončením počkej na dokončení.
+
 ## Co jde ověřit jen na skutečném Windows
 
 CI běží na Windows runneru, ale ten má předinstalované věci, které běžný počítač mít nemusí (např. Visual C++ runtime) a nemá SmartScreen ani interaktivní prohlížeč. Po větších změnách sestavení nebo spouštění proto požádej uživatelku o ruční test na čistém počítači.
