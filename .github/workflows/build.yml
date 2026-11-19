@@ -1,0 +1,8 @@
+# Placeholder workflow (permission test). Will be replaced by the real build.
+name: build
+on: workflow_dispatch
+jobs:
+  noop:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ok

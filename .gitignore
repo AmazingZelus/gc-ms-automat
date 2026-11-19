@@ -1,0 +1,5 @@
+# Build outputs (created by the build script, never committed)
+build/
+dist/
+__pycache__/
+*.pyc
