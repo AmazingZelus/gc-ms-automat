@@ -280,6 +280,9 @@
   function setTable(table) {
     state.table = table;
     $("res-empty").hidden = true; $("res-body").hidden = false; $("export-card").hidden = false;
+    // Forget hidden columns of samples that are no longer in the result.
+    const keys = new Set(tableColumns(table).map((c) => c.key));
+    for (const k of [...state.hiddenCols]) if (!keys.has(k)) state.hiddenCols.delete(k);
     $("dirty").hidden = !table.dirty;
     renderSummary(); renderTable();
     if (state.sel !== null && table.rows.some((r) => r.uid === state.sel)) loadDetail(false);

@@ -115,6 +115,32 @@ def test_sheet_title_is_valid_and_unique():
     assert len(sheet_title("x" * 60, used)) == 31
 
 
+def test_control_characters_are_removed(analysis):
+    row = next(r for r in analysis.rows if abs(r.rt - 5.0) < 0.02)
+    analysis.set_note(row.uid, "vlozeno\x0bz Wordu")
+    wb = export(analysis)
+    _, rows = rows_by_id(wb["Plochy (ND)"])
+    assert rows[int(row.label)]["Poznámka"] == "vlozenoz Wordu"
+    analysis.set_note(row.uid, "")
+
+
+def test_custom_text_equal_to_builtin_marker_is_refused(analysis):
+    for text in ("ND", "nd", "0"):
+        with pytest.raises(ValueError):
+            export(analysis, markers=["custom"], custom_text=text)
+
+
+def test_info_records_computation_time_and_warns_after_changes(analysis):
+    computed = datetime(2026, 11, 20, 8, 0, 0, tzinfo=timezone(timedelta(hours=1)))
+    buffer = io.BytesIO()
+    build_workbook(analysis, AnalysisParams(), [], FILES, ExportOptions(), now=NOW,
+                   computed_at=computed, changed_since=True).save(buffer)
+    buffer.seek(0)
+    values = [c for row in load_workbook(buffer)["Info"].iter_rows(values_only=True) for c in row if c is not None]
+    assert "2026-11-20T08:00:00+01:00" in values and "2026-11-20T09:30:00+01:00" in values
+    assert "Pozor" in values
+
+
 def test_invalid_options_are_refused(analysis):
     with pytest.raises(ValueError):
         export(analysis, markers=["custom"], custom_text="")

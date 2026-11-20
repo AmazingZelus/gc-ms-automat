@@ -192,7 +192,8 @@ def create_blueprint(session: Session, exports_dir: Path = EXPORTS_DIR) -> Bluep
         a = session.require()
         raw = body.get("options") or {}
         options = ExportOptions(
-            markers=[str(x) for x in raw.get("markers", [])] if isinstance(raw.get("markers"), list) else [],
+            # Missing key = the UI default (ND sheet); an explicit empty list = no area sheet.
+            markers=[str(x) for x in raw["markers"]] if isinstance(raw.get("markers"), list) else ["nd"],
             custom_text=str(raw.get("custom_text", ""))[:200],
             mean_formats=[str(x) for x in raw.get("mean_formats", [])] if isinstance(raw.get("mean_formats"), list) else [],
             mean_missing=str(raw.get("mean_missing", "nd")),
@@ -203,8 +204,8 @@ def create_blueprint(session: Session, exports_dir: Path = EXPORTS_DIR) -> Bluep
             options.validate()
         except ValueError as exc:
             raise EditError(str(exc)) from exc
-        workbook = build_workbook(a, session.params, session.alkanes,
-                                  [{"name": f["name"], "role": f["role"]} for f in session.files_json()], options)
+        workbook = build_workbook(a, session.export_params(), a.alkanes, session.result_files, options,
+                                  computed_at=session.computed_at, changed_since=session.dirty)
         try:
             path = save_workbook(workbook, exports_dir)
         except OSError as exc:

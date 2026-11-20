@@ -126,3 +126,21 @@ def test_export_with_invalid_options_explains(client):
     post(client, "/api/run", {"params": {}})
     r = post(client, "/api/export", {"options": {"markers": ["custom"], "custom_text": ""}})
     assert r.status_code == 400 and "Vlastní text" in r.json["error"]
+
+
+def test_export_info_describes_the_computed_result(client, tmp_path):
+    # Reviewer case: a failed re-run with other parameters and a newly uploaded file
+    # must not change what the Info sheet says about the exported (old) result.
+    from openpyxl import load_workbook
+    post(client, "/api/run", {"params": {}})
+    r = post(client, "/api/run", {"params": {"rt_min": 5, "rt_max": 4, "min_snr": 50}})
+    assert r.status_code == 400
+    extra = make_run("s9_a", [(A, 3.0, 1e5, 0.02)], minutes=7, seed=9)
+    client.post("/api/files", base_url=BASE, headers=H, content_type="multipart/form-data",
+                data={"files": [(io.BytesIO(cdf_bytes(extra, tmp_path)), "s9_a.CDF")]})
+    name = post(client, "/api/export", {"options": {}}).json["filename"]
+    info = load_workbook(tmp_path / name)["Info"]
+    rows = {row[0]: row[1] for row in info.iter_rows(values_only=True) if row and row[0]}
+    assert rows["Min. poměr signál/šum"] == 10 and rows["RT od"] == 0
+    assert "s9_a" not in rows and "s1_a" in rows
+    assert "Pozor" in rows

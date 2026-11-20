@@ -10,6 +10,7 @@ from __future__ import annotations
 import math
 import re
 import threading
+from datetime import datetime
 from dataclasses import dataclass
 
 import numpy as np
@@ -43,6 +44,8 @@ class Session:
         self.alkanes: list[Alkane] = []
         self.params = AnalysisParams()
         self.analysis: Analysis | None = None
+        self.result_files: list[dict] = []
+        self.computed_at: datetime | None = None
         self.dirty = False  # files/parameters changed since the last computation
 
     # ------------------------------------------------------------ files
@@ -143,12 +146,24 @@ class Session:
         if self.params.rt_max <= self.params.rt_min:
             raise EditError("„RT do“ musí být větší než „RT od“.")
         self.analysis = Analysis(runs, self.alkanes, self.params)
+        # This remembers exactly which files and when, for the export's Info sheet
+        # (the parameters themselves are kept by the Analysis: analysis.params).
+        self.result_files = [{"name": f["name"], "role": f["role"]} for f in self.files_json()]
+        self.computed_at = datetime.now().astimezone()
         self.dirty = False
 
     @property
     def has_work(self) -> bool:
         """True when there is a computed result (losing it would cost the user work)."""
         return self.analysis is not None
+
+    def export_params(self) -> AnalysisParams:
+        """Parameters for an export: computation parameters as USED for the result,
+        view filters as they are set now (they decide which rows are exported)."""
+        a = self.require()
+        values = a.params.to_dict()
+        values.update({i.key: getattr(self.params, i.key) for i in PARAMETERS if i.stage == "view"})
+        return AnalysisParams(**values)
 
     def require(self) -> Analysis:
         if self.analysis is None:

@@ -23,6 +23,7 @@ from pathlib import Path
 
 import numpy as np
 from openpyxl import Workbook
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
@@ -70,18 +71,26 @@ class ExportOptions:
             raise ValueError("Neznámý formát průměrů.")
         if "custom" in self.markers or self.mean_missing == "custom":
             text = self.custom_text.strip()
-            if not text or len(text) > CUSTOM_TEXT_MAX:
-                raise ValueError(f"Vlastní text pro chybějící hodnotu: 1–{CUSTOM_TEXT_MAX} znaků.")
+            if not text or len(text) > CUSTOM_TEXT_MAX or ILLEGAL_CHARACTERS_RE.search(text):
+                raise ValueError(f"Vlastní text pro chybějící hodnotu: 1–{CUSTOM_TEXT_MAX} běžných znaků.")
+            if text.upper() == "ND" or text == "0":
+                raise ValueError(f"Pro „{text}“ použij zaškrtávátko {text} (vlastní text „{text}“ by byl text, ne stejná hodnota).")
 
 
 # ---------------------------------------------------------------- methods, citations
 # This describes HOW the numbers were obtained: (step, standard English name,
 # implementation, citation). Citations only where we are sure of them.
 def methods_table(params: AnalysisParams) -> list[tuple[str, str, str, str]]:
+    # Note: NOT "valley-to-valley" - that name means a baseline redrawn through every
+    # valley (each peak its own segment); here one straight line spans a whole cluster
+    # of touching peaks and the peaks are separated by perpendicular drops.
+    cluster_line = ("straight baseline from the start to the end of each cluster of touching peaks, "
+                    "peaks separated by perpendicular drops (drop-line)")
     baseline_mode = {
-        "auto": "common baseline (drop-line); valley-to-valley line when a peak cluster ends on a hump",
-        "drop": "common baseline with perpendicular drop lines (drop-line)",
-        "chord": "valley-to-valley baseline (straight line between window start and end)",
+        "auto": "perpendicular drop (drop-line) to the common baseline; when a cluster ends on a hump "
+                "(edge > lift factor x end level): " + cluster_line,
+        "drop": "perpendicular drop (drop-line) to the common baseline",
+        "chord": cluster_line,
     }[params.integration_baseline]
     return [
         ("Formát dat", "ANDI-MS / AIA netCDF (ASTM E2077)", "scipy.io.netcdf_file", ""),
@@ -91,8 +100,8 @@ def methods_table(params: AnalysisParams) -> list[tuple[str, str, str, str]]:
         ("Vyhlazení", "Savitzky–Golay filter (2nd order polynomial)",
          f"scipy.signal.savgol_filter, {params.smooth_points} points",
          "Savitzky A., Golay M. J. E. (1964) Anal. Chem. 36, 1627–1639"),
-        ("Šum (pro S/N)", "median absolute deviation (MAD) of first differences / sqrt(2)",
-         "scipy.stats.median_abs_deviation (unsmoothed signal)", ""),
+        ("Šum (pro S/N)", "robust noise SD: MAD of first differences × 1.4826 / sqrt(2)",
+         "scipy.stats.median_abs_deviation(scale='normal') of the unsmoothed baseline-corrected TIC", ""),
         ("Detekce píků", "local maxima with a prominence threshold",
          f"scipy.signal.find_peaks; prominence >= max({params.min_height_pct:g} % of largest, S/N {params.min_snr:g})", ""),
         ("Začátek a konec píku", "level threshold and slope criterion (peak start/end detection)",
@@ -126,7 +135,8 @@ LIBRARY_CITATIONS = [
               "in Python. Nature Methods 17, 261–272"),
     ("pandas", "McKinney W. (2010) Data structures for statistical computing in Python. "
                "Proc. 9th Python in Science Conference (SciPy 2010)"),
-    ("pybaselines", "Erb D., pybaselines (software) – citace dle dokumentace knihovny"),
+    ("pybaselines", "Erb D. pybaselines: A Python library of algorithms for the baseline correction of "
+                    "experimental data. https://doi.org/10.5281/zenodo.5608581"),
     ("openpyxl", "Gazoni E., Clark C., openpyxl (software)"),
     ("flask", "(uživatelské rozhraní, výpočty neovlivňuje)"),
     ("waitress", "(uživatelské rozhraní, výpočty neovlivňuje)"),
@@ -135,7 +145,12 @@ LIBRARY_CITATIONS = [
 
 # ---------------------------------------------------------------- helpers
 def safe_text(cell, value: str) -> None:
-    """Write text so Excel never treats it as a formula (=, +, -, @ at the start)."""
+    """Write text so Excel never treats it as a formula (=, +, -, @ at the start).
+
+    Control characters that an .xlsx cannot hold (e.g. from pasted text) are removed.
+    """
+    if isinstance(value, str):
+        value = ILLEGAL_CHARACTERS_RE.sub("", value)
     cell.value = value
     if isinstance(value, str) and value[:1] in ("=", "+", "-", "@"):
         cell.data_type = "s"
@@ -165,6 +180,9 @@ def format_mean_sd(mean: float, sd: float | None) -> str:
     if sd is None or not math.isfinite(sd) or sd <= 0:
         return fmt(mean, 0)
     decimals = 1 - int(math.floor(math.log10(sd)))
+    # Rounding can carry into the next decade (99.6 -> 100): recount from the rounded SD.
+    rounded = round(sd, decimals)
+    decimals = 1 - int(math.floor(math.log10(rounded)))
     return f"{fmt(mean, decimals)} ± {fmt(sd, decimals)}"
 
 
@@ -241,10 +259,17 @@ def _marker_suffix(key: str, custom: str) -> str:
 
 
 def build_workbook(analysis: Analysis, params: AnalysisParams, alkanes: list[Alkane],
-                   files: list[dict], options: ExportOptions, now: datetime | None = None) -> Workbook:
-    """Create the workbook (not saved). `files`: [{"name", "role"}] of all loaded files."""
+                   files: list[dict], options: ExportOptions, now: datetime | None = None,
+                   computed_at: datetime | None = None, changed_since: bool = False) -> Workbook:
+    """Create the workbook (not saved).
+
+    params: the parameters the result was COMPUTED with (+ current view filters);
+    files: [{"name", "role"}] as they were at computation time; computed_at: when
+    Vyhodnotit ran (= processing time); now: export time.
+    """
     options.validate()
-    processed_at = (now if now is not None and now.tzinfo else (now or datetime.now()).astimezone())
+    exported_at = (now if now is not None and now.tzinfo else (now or datetime.now()).astimezone())
+    processed_at = computed_at or exported_at
     names = analysis.names
     reasons = view_filter(analysis.rows, params)
     rows = [r for r in analysis.rows if not r.deleted and (not options.only_visible or not reasons[r.uid])]
@@ -256,11 +281,15 @@ def build_workbook(analysis: Analysis, params: AnalysisParams, alkanes: list[Alk
     ws.title = sheet_title("Info", used)
     lines: list[list] = [
         [APP_NAME], ["Verze", __version__],
-        ["Zpracováno", processed_at.isoformat(timespec="seconds")],
+        ["Zpracováno (Vyhodnotit)", processed_at.isoformat(timespec="seconds")],
+        ["Exportováno", exported_at.isoformat(timespec="seconds")],
         ["Python", platform.python_version()],
         ["Exportované řádky", f"{len(rows)} ({'jen viditelné v tabulce' if options.only_visible else 'všechny nesmazané'})"],
-        [], ["Soubory", "Role"],
     ]
+    if changed_since:
+        lines.append(["Pozor", "Po výpočtu se změnily soubory nebo nastavení. Tento export odpovídá POSLEDNÍMU "
+                               "výpočtu (soubory a parametry níže); změny se projeví po novém Vyhodnotit."])
+    lines += [[], ["Soubory (při výpočtu)", "Role"]]
     role_names = {"sample": "vzorek", "alk": "alkany", "off": "nepoužit"}
     lines += [[f["name"], role_names.get(f["role"], f["role"])] for f in files]
     lines += [[], ["Alkany (C)", "RT [min]", "Zdroj"]]
@@ -284,12 +313,12 @@ def build_workbook(analysis: Analysis, params: AnalysisParams, alkanes: list[Alk
         except PackageNotFoundError:
             ver = "nenainstalováno"
         lines.append([package, ver, citation])
-    bold_rows = {1, 7}
+    bold_rows = {1}
     for i, line in enumerate(lines, start=1):
         for j, value in enumerate(line, start=1):
             cell = ws.cell(row=i, column=j)
             safe_text(cell, value) if isinstance(value, str) else setattr(cell, "value", value)
-        if line and line[0] in ("Soubory", "Alkany (C)", "Parametr", "Krok", "Knihovna"):
+        if line and line[0] in ("Soubory (při výpočtu)", "Alkany (C)", "Parametr", "Krok", "Knihovna", "Pozor"):
             bold_rows.add(i)
     for i in bold_rows:
         for c in ws[i]:
