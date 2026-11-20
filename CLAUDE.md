@@ -81,8 +81,10 @@ Proč takto: Flask + waitress + čisté HTML/JS je nejjednodušší spolehlivá 
 - **Známý kompromis** (parametr „Konec okna při zploštění“, výchozí 5 %): chvostující píky přijdou o část ocasu (EMG τ/σ 1,5 / 3 / 5 → −1 / −2 / −3 %); s 0–1 % se ocas zachová, ale píky na hrbolech se nadhodnotí až 5×. Hlídá `test_tailing_peak_area_tradeoff_is_as_documented`.
 - **Neřešeno (příští verze):** malý pík na ocasu velkého chvostujícího píku dostane ocas pod sebou, tj. asi 2× svou plochu (chybí „tangent/exponential skim“; `test_small_peak_after_a_tailing_peak_is_a_known_limitation`). Propady signálu pod baseline (výpadek detektoru) dělají falešné píky. Saturovaný pík s plochým vrcholem se může rozpadnout na 2–3 řádky (ručně sloučit). Vše je vidět v grafu.
 - Práh výšky (% největšího píku) se počítá jen uvnitř vyhodnocovaného RT rozsahu.
+- **Min. plocha** (`min_area`) se uplatní AŽ po integraci: řádky s největší plochou pod prahem se označí jako smazané (zůstanou v geometrii shluku, plochy sousedů se nemění; test `test_min_area_does_not_change_neighbour_area`). Nefiltrovat píky před zarovnáním.
+- Smazané/skryté řádky se nepočítají do pravidla „žádné překryvy“ (`live_rows`): pozdější úprava souseda může zabrat jejich okno a pak je nejde obnovit. Zatím jen zdokumentováno.
 - **Alkany automaticky:** M⁺ po odečtení izotopu ¹³C fragmentu na 14n+1. Alkany se slabým M⁺ se NEodhadují, uživatel je doplní.
-- **Váhy shody spekter** (intenzita^0,5 × m/z^1): `TODO: ověřit zdroj` (Stein & Scott 1994).
+- **Váhy shody spekter** (intenzita^0,5 × m/z^1) = „běžně používané“ váhy podle Stein & Scott 1994 (J. Am. Soc. Mass Spectrom. 5, 859–866, tab. 3; ověřeno z článku). Jejich optimum pro hledání v knihovně: intenzita^0,6 × m/z^3 (tab. 2). Výchozí zatím 0,5/1 (prahy shody byly voleny s nimi).
 - **Shoda spekter v tabulce** = nejhorší shoda mezi vzorky, kde má řádek plochu (ND se nepočítá).
 - **Průměry paralelek** (export): jen když je látka ve VŠECH paralelkách skupiny, jinak chybějící (pravidlo uživatelky). SD výběrová (n − 1).
 - Testy obsahují i chvostující píky (EMG), shluky na driftující baseline, malé píky vedle velkých a náhodné sekvence úprav (fuzz test, že se okna nikdy nepřekryjí). Při změně metody tyhle testy nesmí povolit.

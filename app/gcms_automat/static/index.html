@@ -74,82 +74,104 @@
         <div id="res-body" class="stack" hidden>
           <div id="summary" class="summary"></div>
 
-          <!-- This is the detail of the selected row (chromatograms + spectra). -->
-          <div id="detail" class="card inner" hidden>
+          <div id="res-split" class="res-split">
+            <div class="res-table stack">
+            <!-- This is the toolbar above the table. -->
+            <div class="row toolbar">
+              <span id="sel-info" class="help">Zaškrtni řádky pro sloučení.</span>
+              <button id="merge" class="btn" type="button" disabled>Sloučit vybrané</button>
+              <button id="undo" class="btn" type="button" disabled>Zpět</button>
+              <label class="check-inline"><input id="show-hidden" type="checkbox"> Ukázat skryté řádky</label>
+              <button id="show-cols" class="btn" type="button" hidden>Zobrazit skryté sloupce</button>
+            </div>
+            <details class="hint"><summary>Nápověda k tabulce</summary>
+              <p>Klikni na řádek pro chromatogramy a spektrum; najetím na buňku uvidíš okno, S/N a shodu spektra.
+              „Shoda spekter“ = nejhorší shoda spektra některého vzorku s referenčním spektrem řádku (1 = stejné).
+              Červeně podbarvené = špatná shoda spekter napříč vzorky. Kurzíva = dointegrováno, modře = ruční okno.</p></details>
+            <div class="scroll"><table id="results"></table></div>
+            </div>
+          <!-- This is the detail of the selected row; on wide screens it sits next to the
+               table and stays in view while the table is scrolled. -->
+          <aside id="detail" class="card inner detail-panel" hidden>
             <div class="row spread">
               <h3 id="det-title"></h3>
-              <div class="row">
-                <label class="help" for="view-mode">Zobrazit</label>
-                <select id="view-mode"><option value="corr">TIC − baseline</option><option value="raw">TIC + baseline</option></select>
-                <span class="zoom-label">Čas</span>
-                <span class="btn-group" role="group" aria-label="Zoom v čase">
-                  <button id="zoom-in" class="btn btn-small" type="button" title="Užší časový rozsah (kolečko myši)">+</button>
-                  <button id="zoom-out" class="btn btn-small" type="button" title="Širší časový rozsah">−</button>
-                  <button id="pan-left" class="btn btn-small" type="button" title="Posunout doleva">←</button>
-                  <button id="pan-right" class="btn btn-small" type="button" title="Posunout doprava">→</button>
-                </span>
-                <span class="zoom-label">Výška</span>
-                <span class="btn-group" role="group" aria-label="Zoom ve výšce">
-                  <button id="yzoom-in" class="btn btn-small" type="button" title="Zvětšit výšku (Shift + kolečko myši)">+</button>
-                  <button id="yzoom-out" class="btn btn-small" type="button" title="Zmenšit výšku">−</button>
-                  <button id="yzoom-fit" class="btn btn-small" type="button" title="Výška podle signálu v integračním okně">podle okna</button>
-                </span>
-                <button id="zoom-reset" class="btn btn-small" type="button" title="Výchozí rozsah času i výšky">↺</button>
+              <span class="btn-group" role="group" aria-label="Přechod mezi řádky">
+                <button id="row-prev" class="btn btn-small" type="button" title="Předchozí řádek tabulky (šipka nahoru)">↑ Předchozí</button>
+                <button id="row-next" class="btn btn-small btn-primary" type="button" title="Další řádek tabulky (šipka dolů)">Další pík ↓</button>
+              </span>
+            </div>
+            <div class="row">
+              <select id="view-mode" aria-label="Co zobrazit"><option value="corr">TIC − baseline</option><option value="raw">TIC + baseline</option></select>
+              <span class="zoom-label">Čas</span>
+              <span class="btn-group" role="group" aria-label="Zoom v čase">
+                <button id="zoom-in" class="btn btn-small" type="button" title="Užší časový rozsah (kolečko myši)">+</button>
+                <button id="zoom-out" class="btn btn-small" type="button" title="Širší časový rozsah">−</button>
+                <button id="pan-left" class="btn btn-small" type="button" title="Posunout doleva">←</button>
+                <button id="pan-right" class="btn btn-small" type="button" title="Posunout doprava">→</button>
+              </span>
+              <span class="zoom-label">Výška</span>
+              <span class="btn-group" role="group" aria-label="Zoom ve výšce">
+                <button id="yzoom-in" class="btn btn-small" type="button" title="Zvětšit výšku (Shift + kolečko myši)">+</button>
+                <button id="yzoom-out" class="btn btn-small" type="button" title="Zmenšit výšku">−</button>
+                <button id="yzoom-fit" class="btn btn-small" type="button" title="Výška podle signálu v integračním okně">podle okna</button>
+              </span>
+              <button id="zoom-reset" class="btn btn-small" type="button" title="Výchozí rozsah času i výšky">↺</button>
+            </div>
+
+            <!-- This is the chromatogram with the edit buttons on its right. -->
+            <div class="detail-main">
+              <canvas id="chrom" class="plot plot-chrom"
+                aria-label="Chromatogramy kolem vybraného řádku. Táhni okraje modrého pole nebo vyznač nové okno."></canvas>
+              <div class="detail-actions">
+                <span class="help">Okno integrace [min]</span>
+                <div class="row nowrap">
+                  <input id="w-start" class="num-input" type="number" step="0.001" aria-label="Začátek okna [min]">
+                  <span class="help">–</span>
+                  <input id="w-end" class="num-input" type="number" step="0.001" aria-label="Konec okna [min]">
+                </div>
+                <button id="w-apply" class="btn" type="button">Použít okno</button>
+                <button id="s-start" class="btn" type="button">Rozdělit pík…</button>
+                <div id="s-controls" class="stack-s" hidden>
+                  <span class="help">Rozdělit v [min]</span>
+                  <input id="s-at" class="num-input" type="number" step="0.001" aria-label="Místo rozdělení [min]">
+                  <div class="row nowrap">
+                    <button id="s-ok" class="btn btn-primary" type="button">Rozdělit</button>
+                    <button id="s-cancel" class="btn btn-link" type="button">Zrušit</button>
+                  </div>
+                </div>
+                <button id="r-fill" class="btn" type="button">Integrovat i v ND</button>
+                <button id="r-delete" class="btn" type="button">Smazat řádek (šum)</button>
+                <label class="help" for="r-note">Poznámka (Enter uloží)</label>
+                <input id="r-note" class="note-input" type="text" maxlength="500" placeholder="vlastní poznámka">
               </div>
             </div>
-            <canvas id="chrom" class="plot plot-chrom"
-              aria-label="Chromatogramy kolem vybraného řádku. Táhni okraje modrého pole nebo vyznač nové okno."></canvas>
+            <p id="r-msg" class="status" role="status"></p>
+
             <details id="legend" class="legend-box">
               <summary><span class="legend-caret" aria-hidden="true"></span><span id="legend-summary">Vzorky</span>
                 <span class="legend-hint">klikni pro seznam: zvýrazni vzorek a ukaž jeho spektrum</span></summary>
               <div id="legend-list" class="legend-list"></div>
             </details>
-            <div class="row">
-              <span class="help">Okno integrace</span>
-              <input id="w-start" class="num-input" type="number" step="0.001" aria-label="Začátek okna [min]">
-              <span class="help">–</span>
-              <input id="w-end" class="num-input" type="number" step="0.001" aria-label="Konec okna [min]">
-              <span class="help">min</span>
-              <button id="w-apply" class="btn" type="button">Použít okno</button>
-              <button id="s-start" class="btn" type="button">Rozdělit pík…</button>
-              <span id="s-controls" class="row" hidden>
-                <span class="help">v</span><input id="s-at" class="num-input" type="number" step="0.001" aria-label="Místo rozdělení [min]">
-                <button id="s-ok" class="btn btn-primary" type="button">Rozdělit</button>
-                <button id="s-cancel" class="btn btn-link" type="button">Zrušit</button>
-              </span>
-            </div>
+
+            <!-- This is the mass spectra block (folded; stays open while switching rows). -->
+            <details id="spectra-box" class="legend-box">
+              <summary><span class="legend-caret" aria-hidden="true"></span><span>Hmotnostní spektra</span>
+                <span class="legend-hint">referenční a vybraného vzorku</span></summary>
+              <div class="spectra">
+                <div><p class="help" id="spec-ref-title">Referenční spektrum</p><canvas id="spec-ref" class="plot plot-spec"></canvas></div>
+                <div><p class="help" id="spec-sel-title">Vyber vzorek v seznamu „Vzorky“</p><canvas id="spec-sel" class="plot plot-spec"></canvas></div>
+              </div>
+            </details>
+
             <details class="hint"><summary>Nápověda k oknu a grafu</summary>
               <p>Táhni okraje modrého pole, nebo tažením v grafu vyznač nové okno. Platí pro všechny vzorky,
               kde má řádek plochu (okraje se posunou o stejný kus u každého vzorku), a když je v seznamu „Vzorky“ jeden
               zvýrazněný, jen pro něj. U sousedního řádku se okno ořízne. Čárkovaně = baseline, nad kterou se plocha měří.</p>
               <p>Kolečko myši = časový rozsah, Shift + kolečko = výška. „Výška podle okna“ roztáhne signál v integračním
-              okně na celou výšku grafu (čas zůstane), takže je hned vidět, jestli je tam pík, nebo jen placka.</p></details>
-            <div class="spectra">
-              <div><p class="help" id="spec-ref-title">Referenční spektrum</p><canvas id="spec-ref" class="plot plot-spec"></canvas></div>
-              <div><p class="help" id="spec-sel-title">Vyber vzorek v seznamu „Vzorky“</p><canvas id="spec-sel" class="plot plot-spec"></canvas></div>
-            </div>
-            <div class="row">
-              <button id="r-fill" class="btn" type="button">Integrovat i v ND</button>
-              <button id="r-delete" class="btn" type="button">Smazat řádek (šum)</button>
-              <label class="help" for="r-note">Poznámka</label>
-              <input id="r-note" class="note-input" type="text" maxlength="500" placeholder="vlastní poznámka, Enter uloží">
-            </div>
-            <p id="r-msg" class="status" role="status"></p>
+              okně na celou výšku grafu (čas zůstane). Zoom zůstává i při přechodu na jiný pík; ↺ ho vrátí.
+              Šipky nahoru/dolů na klávesnici přepínají řádky.</p></details>
+          </aside>
           </div>
-
-          <!-- This is the toolbar above the table. -->
-          <div class="row toolbar">
-            <span id="sel-info" class="help">Zaškrtni řádky pro sloučení.</span>
-            <button id="merge" class="btn" type="button" disabled>Sloučit vybrané</button>
-            <button id="undo" class="btn" type="button" disabled>Zpět</button>
-            <label class="check-inline"><input id="show-hidden" type="checkbox"> Ukázat skryté řádky</label>
-            <button id="show-cols" class="btn" type="button" hidden>Zobrazit skryté sloupce</button>
-          </div>
-          <details class="hint"><summary>Nápověda k tabulce</summary>
-            <p>Klikni na řádek pro chromatogramy a spektrum; najetím na buňku uvidíš okno, S/N a shodu spektra.
-            „Shoda spekter“ = nejhorší shoda spektra některého vzorku s referenčním spektrem řádku (1 = stejné).
-            Červeně podbarvené = špatná shoda spekter napříč vzorky. Kurzíva = dointegrováno, modře = ruční okno.</p></details>
-          <div class="scroll"><table id="results"></table></div>
         </div>
       </section>
 

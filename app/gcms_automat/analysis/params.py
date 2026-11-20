@@ -46,6 +46,9 @@ class AnalysisParams:
     # Minimum signal-to-noise ratio. 10 is the usual limit of quantification
     # convention (S/N 10:1; ICH Q2 guideline), so every reported peak is quantifiable.
     min_snr: float = 10.0
+    # Minimum peak area [counts * s]. 0 = off (default: no area limit; the useful
+    # value depends on the instrument and the method, so the analyst sets it).
+    min_area: float = 0.0
     # Baseline stiffness of arPLS as log10(lambda). 7: synthetic tests (tailing peak,
     # crowded cluster, small isolated peak) give areas within 1 % for 6..8, and the
     # real test run (7790 scans) has no negative areas for 6..8.
@@ -116,10 +119,12 @@ class AnalysisParams:
     poor_match_below: float = 0.85
 
     # ---- Advanced: spectral similarity weighting ----
-    # Similarity = cosine of (intensity^a * (m/z)^b) vectors. a = 0.5, b = 1 are the
-    # values of the previous version, NOT taken from a paper. TODO: ověřit zdroj -
-    # weighting of this type is studied by Stein & Scott 1994 (J. Am. Soc. Mass
-    # Spectrom. 5, 859), whose optimum is reportedly different (unverified).
+    # Similarity = cosine of (intensity^a * (m/z)^b) vectors (dot-product algorithm).
+    # a = 0.5, b = 1 is the weighting Stein & Scott (1994, J. Am. Soc. Mass Spectrom.
+    # 5, 859-866, Table 3) call "the scaling used most commonly"; their optimized
+    # dot product for library search used a = 0.6, b = 3 (Table 2), mass powers 2 and
+    # 3 being about equally good. Kept at 0.5 / 1: same as the previous tool, and the
+    # default similarity thresholds (0.70, 0.60, 0.85) were chosen with it.
     weight_intensity_power: float = 0.5
     weight_mz_power: float = 1.0
 
@@ -200,6 +205,13 @@ PARAMETERS: list[ParamInfo] = [
     ParamInfo("min_snr", "Min. poměr signál/šum", "S/N",
               "10 odpovídá obvyklé mezi stanovitelnosti (S/N 10:1). Pík musí splnit obě podmínky.",
               "Detekce píků", minimum=0, step=1),
+    ParamInfo("min_area", "Min. plocha píku", "counts·s",
+              "Řádek (látka), jehož největší plocha ve všech vzorcích je menší, se skryje jako smazaný "
+              "(„Ukázat skryté řádky“ ho ukáže a jde obnovit; do exportu nejde). Plochy sousedních píků se tím "
+              "nemění. 0 = bez omezení. Práh zvol podle ploch v tabulce, např. o řád pod nejmenší látkou, "
+              "kterou chceš mít. Změna se projeví po Vyhodnotit (ruční úpravy se tím zahodí). "
+              "Na rozdíl od filtru „malé píky“ v Zobrazení tabulky řádky skryje už při výpočtu.",
+              "Detekce píků", minimum=0, step=1000),
     ParamInfo("smooth_points", "Vyhlazení", "skenů",
               "Okno Savitzky–Golayova vyhlazení (liché číslo, 2. řád). 0 nebo 1 = bez vyhlazení.",
               "Detekce píků", kind="int", minimum=0, maximum=51, step=2),
@@ -276,7 +288,8 @@ PARAMETERS: list[ParamInfo] = [
               "Pro automatické určení počtu uhlíků (po odečtení izotopu ¹³C fragmentu [M−H]⁺).",
               "Pokročilé", minimum=0, maximum=100, step=0.1),
     ParamInfo("weight_intensity_power", "Váha intenzity (exponent)", "",
-              "Shoda = kosinus vektorů intenzita^a × (m/z)^b. Výchozí a = 0,5, b = 1 převzaty z předchozí "
-              "verze nástroje (zdroj neověřen).", "Pokročilé", minimum=0, maximum=3, step=0.1),
+              "Shoda = kosinus vektorů intenzita^a × (m/z)^b. Výchozí a = 0,5, b = 1 = běžně používané váhy "
+              "(Stein & Scott 1994, tab. 3); jejich optimum pro hledání v knihovně bylo a = 0,6, b = 3. "
+              "Při změně vah zkontroluj prahy shody.", "Pokročilé", minimum=0, maximum=3, step=0.1),
     ParamInfo("weight_mz_power", "Váha m/z (exponent)", "", "", "Pokročilé", minimum=0, maximum=3, step=0.1),
 ]

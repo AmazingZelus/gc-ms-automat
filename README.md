@@ -50,10 +50,12 @@ Pokud zdroji nevěříte, zdrojový kód je celý veřejně v tomto repozitáři
 1. **Soubory:** přetáhni do okna `.CDF` soubory (z ChemStationu: *File → Export Data to AIA Format*), vzorky i alkanový standard najednou. Soubor s „alk“ v názvu dostane roli *Alkany*, ostatní *Vzorek*. Roli můžeš změnit.
    - **Paralelky** se poznají podle posledního písmene za podtržítkem: `vzorek_1_a` a `vzorek_1_b` patří do skupiny `vzorek_1`.
 2. **Alkany:** najdou se samy v souborech alkanů. Zkontroluj je, případně je přepiš, nebo vlož tabulku (řádky `C10; 4,567`). Bez alkanů se RI nepočítá.
-3. **Nastavení:** každý parametr má výchozí hodnotu a vysvětlení. Parametry výpočtu se projeví po kliknutí na **Vyhodnotit**. Parametry v části *Zobrazení tabulky* (skrytí podle základního iontu, malých píků, N největších, zvýraznění špatné shody) platí hned a nikdy nemění vypočtená čísla.
+3. **Nastavení:** *Min. plocha píku* skryje látky, jejichž největší plocha je pod prahem (jdou ukázat a obnovit, plochy sousedů se nemění). Každý parametr má výchozí hodnotu a vysvětlení. Parametry výpočtu se projeví po kliknutí na **Vyhodnotit**. Parametry v části *Zobrazení tabulky* (skrytí podle základního iontu, malých píků, N největších, zvýraznění špatné shody) platí hned a nikdy nemění vypočtená čísla.
 4. **Tabulka:** ID, RT, RI, top ionty, nejhorší shoda spekter (červeně podbarvené = špatná), n (v kolika vzorcích je plocha), poznámka a plochy ve vzorcích. Najetím na buňku uvidíš okno integrace, S/N a shodu spektra.
-5. **Detail řádku** (klikni na řádek):
-   - chromatogramy všech vzorků kolem píku; kolečko myši nebo tlačítka + − ← → mění rozsah,
+5. **Detail řádku** (klikni na řádek): na širší obrazovce je vedle tabulky a zůstává vidět i při posouvání tabulky.
+   - chromatogramy všech vzorků kolem píku; kolečko myši nebo tlačítka + − ← → mění rozsah. Zoom zůstává i při přechodu na jiný řádek, ↺ ho vrátí,
+   - **Další pík ↓ / ↑ Předchozí** (nebo šipky dolů/nahoru na klávesnici) přepne na další řádek tabulky,
+   - tlačítka úprav jsou napravo od grafu, hmotnostní spektra jsou pod ním v rozbalovacím poli **Hmotnostní spektra**,
    - seznam **Vzorky**: klik zvýrazní chromatogram vzorku a ukáže jeho spektrum vedle referenčního,
    - **ruční úpravy:** tažení okna integrace, *Rozdělit pík* (vzniknou řádky `5_1` a `5_2`), *Sloučit vybrané* (zaškrtávátka v tabulce), *Integrovat i v ND*, *Smazat řádek*, vlastní poznámka. Tlačítko **Zpět** vrací poslední úpravu.
    - Okna integrace různých řádků se v jednom vzorku nikdy nepřekrývají. Úpravu, která by překryv způsobila, aplikace odmítne a napíše proč.

@@ -105,7 +105,9 @@ def methods_table(params: AnalysisParams) -> list[tuple[str, str, str, str]]:
         ("Šum (pro S/N)", "robust noise SD: MAD of first differences × 1.4826 / sqrt(2)",
          "scipy.stats.median_abs_deviation(scale='normal') of the unsmoothed baseline-corrected TIC", ""),
         ("Detekce píků", "local maxima with a prominence threshold",
-         f"scipy.signal.find_peaks; prominence >= max({params.min_height_pct:g} % of largest, S/N {params.min_snr:g})", ""),
+         f"scipy.signal.find_peaks; prominence >= max({params.min_height_pct:g} % of largest, S/N {params.min_snr:g})"
+         + (f"; rows with max. area < {params.min_area:g} counts·s hidden after integration"
+            if params.min_area > 0 else ""), ""),
         ("Začátek a konec píku", "level threshold and slope criterion (peak start/end detection)",
          f"this application: first of signal < max({params.window_end_pct:g} % height, "
          f"{params.window_end_noise_sigma:g} sigma), slope < {params.window_end_slope_pct:g} % of max slope, valley", ""),
@@ -126,7 +128,8 @@ def methods_table(params: AnalysisParams) -> list[tuple[str, str, str, str]]:
          if params.fill_replicates else "", ""),
         ("Shoda spekter", "weighted cosine similarity (dot product)",
          f"intensity^{params.weight_intensity_power:g} × (m/z)^{params.weight_mz_power:g}",
-         "váhy: TODO ověřit zdroj (Stein S. E., Scott D. R. (1994) J. Am. Soc. Mass Spectrom. 5, 859–866 studují váhy tohoto typu)"),
+         "Stein S. E., Scott D. R. (1994) J. Am. Soc. Mass Spectrom. 5, 859–866 (Table 3: intensity^0.5 × "
+         "mass^1 = commonly used scaling; optimum for library search: intensity^0.6 × mass^3)"),
         ("Zarovnání mezi záznamy", "retention-time window + spectral similarity (greedy clustering)",
          f"this application; RT ± {params.rt_tolerance_min:g} min, similarity >= {params.min_similarity:g}", ""),
         ("Retenční index", "linear (temperature-programmed) retention index",

@@ -185,6 +185,30 @@ def test_height_threshold_ignores_peaks_outside_rt_range():
     row_near(analysis, 4.0)
 
 
+def test_min_area_hides_small_rows():
+    # Known areas: A (height 1e5) and a small C (height 2e3). With a minimum area
+    # between the two, only A stays visible; with 0 (off) both do.
+    run = make_run("s", [(A, 3.0, 1e5, SIGMA), (C, 6.0, 2e3, SIGMA)])
+    limit = (gaussian_area(1e5, SIGMA, A) + gaussian_area(2e3, SIGMA, C)) / 2
+    assert len([r for r in Analysis([run], [], params()).rows if not r.deleted]) == 2
+    rows = [r for r in Analysis([run], [], params(min_area=limit)).rows if not r.deleted]
+    assert len(rows) == 1 and abs(rows[0].rt - 3.0) < 0.01
+
+
+def test_min_area_does_not_change_neighbour_area():
+    # A small peak C on the flank of A: hiding C by the minimum area must leave A's
+    # area exactly as without the limit (same rule as deleting a row by hand).
+    run = make_run("s", [(A, 3.0, 1e5, SIGMA), (C, 3.07, 3e4, SIGMA)])
+    full = Analysis([run], [], params())
+    assert len(full.rows) == 2
+    small = min(full.rows, key=lambda r: r.max_area)
+    big = max(full.rows, key=lambda r: r.max_area)
+    limited = Analysis([run], [], params(min_area=small.max_area * 1.01))
+    visible = [r for r in limited.rows if not r.deleted]
+    assert len(visible) == 1
+    assert visible[0].cells["s"].area == pytest.approx(big.cells["s"].area, rel=1e-12)
+
+
 def test_similarity_properties():
     axis = MzAxis(35, 300)
     a = np.zeros(axis.size); a[43 - 35] = 100; a[57 - 35] = 50

@@ -249,7 +249,8 @@ class Analysis:
         detected: dict[tuple[int, int], object] = {}
         for i, name in enumerate(self.names):
             d = self.data[name]
-            for k, p in enumerate(pick_peaks(d.trace, P.min_height_pct, P.min_snr, P.rt_min, P.rt_max, self.rule)):
+            peaks = pick_peaks(d.trace, P.min_height_pct, P.min_snr, P.rt_min, P.rt_max, self.rule)
+            for k, p in enumerate(peaks):
                 spec = peak_spectrum(d.run, p.apex, p.start, p.end, self.axis, P.spectrum_background_scans)
                 peak_refs.append(PeakRef(i, k, p.rt, p.height, spec))
                 detected[(i, k)] = p
@@ -304,10 +305,27 @@ class Analysis:
                 self.refresh(row)
 
         self.reintegrate()
+        self._hide_small_rows()
         # ---- This numbers the rows by retention time ----
         for row in self.rows:
             row.uid = self._new_uid()
             row.label = str(row.uid)
+
+    def _hide_small_rows(self) -> None:
+        """Hide rows whose largest area (over all runs) is below the minimum area.
+
+        Applied AFTER integration and done like a manual delete: the row stays in the
+        cluster geometry, so hiding a small peak never changes its neighbours' areas,
+        and the analyst can show and restore it. min_area in counts * s; 0 = off.
+        """
+        self.stats["small"] = 0
+        if self.params.min_area <= 0:
+            return
+        for row in self.rows:
+            if row.max_area < self.params.min_area:
+                row.deleted = True
+                row.edits.append(f"skryto: největší plocha < min. plocha {self.params.min_area:g}")
+                self.stats["small"] += 1
 
     def _fill(self, row: Row, name: str, window: tuple[float, float], ref: np.ndarray | None, source: str) -> Cell:
         """Try to integrate a run where the row has no peak (ND unless a real peak is there)."""
@@ -535,7 +553,8 @@ def view_filter(rows: list[Row], params: AnalysisParams) -> dict[int, str]:
     for r in rows:
         reason = ""
         if r.deleted:
-            reason = "smazáno"
+            auto = bool(r.edits) and r.edits[-1].startswith("skryto:")   # hidden by the minimum area
+            reason = "pod min. plochou" if auto else "smazáno"
         elif r.base_ion is not None and r.base_ion in hide_ions:
             reason = f"základní iont {r.base_ion}"
         elif (params.small_max_detections > 0 and params.small_max_area > 0

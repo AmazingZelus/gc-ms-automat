@@ -286,14 +286,17 @@
     $("dirty").hidden = !table.dirty;
     renderSummary(); renderTable();
     if (state.sel !== null && table.rows.some((r) => r.uid === state.sel)) loadDetail(false);
-    else { state.sel = null; $("detail").hidden = true; }
+    else { state.sel = null; showDetailPanel(false); }
   }
 
   function renderSummary() {
     const t = state.table, s = t.stats;
-    const hiddenCount = t.rows.filter((r) => r.hidden).length;
+    // Counted from the rows, so a restored row is no longer counted.
+    const hiddenCount = t.rows.filter((r) => r.hidden && !r.deleted).length;
+    const smallCount = t.rows.filter((r) => r.deleted && r.edits.length && r.edits[r.edits.length - 1].startsWith("skryto:")).length;
     const parts = [[t.n_visible, "látek v tabulce"], [t.names.length, "vzorků"], [s.peaks, "píků nalezeno"]];
     if (s.co2) parts.push([s.co2, "vyřazeno jako šum CO₂"]);
+    if (smallCount) parts.push([smallCount, "skryto (pod min. plochou)"]);
     if (s.filled) parts.push([s.filled, "buněk dointegrováno"]);
     if (hiddenCount) parts.push([hiddenCount, "skryto filtrem"]);
     if (!t.has_alkanes) parts.push(["–", "bez alkanů, RI se nepočítá"]);
@@ -379,11 +382,59 @@
       if (e.target.checked) state.checked.add(uid); else state.checked.delete(uid);
       updateSelection(); return;
     }
+    selectRow(uid);
+  });
+
+  // ---- This selects a row: the chromatogram re-centres on it but KEEPS the zoom ----
+  function selectRow(uid) {
     state.sel = uid; state.view.centre = null; state.highlight = null; state.split = null; setSplitUi();
-    state.yzoom = { scale: 1, fit: false };
     document.querySelectorAll("#results tr.sel").forEach((x) => x.classList.remove("sel"));
-    tr.classList.add("sel"); say("r-msg", "");
+    const tr = document.querySelector(`#results tr[data-uid="${uid}"]`);
+    if (tr) { tr.classList.add("sel"); scrollRowIntoTable(tr); }
+    say("r-msg", "");
     loadDetail(true);
+  }
+
+  // This scrolls only the table box (not the page), so the chart stays where it is.
+  function scrollRowIntoTable(tr) {
+    const box = tr.closest(".scroll"); if (!box) return;
+    const head = box.querySelector("thead"), headH = head ? head.offsetHeight : 0;
+    const top = tr.offsetTop - headH, bottom = tr.offsetTop + tr.offsetHeight;
+    if (top < box.scrollTop) box.scrollTop = top;
+    else if (bottom > box.scrollTop + box.clientHeight) box.scrollTop = bottom - box.clientHeight;
+  }
+
+  // ---- This is "Další pík" / "Předchozí": the next row as shown in the table ----
+  function stepRow(delta) {
+    const uids = [...document.querySelectorAll("#results tbody tr[data-uid]")].map((x) => Number(x.dataset.uid));
+    if (!uids.length) return;
+    const i = uids.indexOf(state.sel);
+    if (i >= 0) {
+      const next = Math.min(uids.length - 1, Math.max(0, i + delta));
+      if (uids[next] !== state.sel) selectRow(uids[next]);
+      return;
+    }
+    // The selected row is not shown (just deleted or filtered out): go to its nearest
+    // shown neighbour in that direction, so the user does not lose their place.
+    const order = state.table.rows.map((r) => r.uid), shown = new Set(uids);
+    let k = order.indexOf(state.sel);
+    if (k < 0) { selectRow(uids[0]); return; }
+    for (k += delta; k >= 0 && k < order.length; k += delta) {
+      if (shown.has(order[k])) { selectRow(order[k]); return; }
+    }
+  }
+  $("row-next").addEventListener("click", () => stepRow(1));
+  $("row-prev").addEventListener("click", () => stepRow(-1));
+  // Arrow keys switch rows while the detail is open (not while typing in a field).
+  // Only when nothing else wants the key: no modifier, not typing, focus not in the settings.
+  document.addEventListener("keydown", (e) => {
+    if ($("detail").hidden || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    const t = e.target;
+    if (t !== document.body && !t.closest("#res-split")) return;
+    if (t.closest("input, textarea, select, summary")) return;
+    if (e.repeat && state.detailBusy) { e.preventDefault(); return; }   // held key: wait for the last one
+    if (e.key === "ArrowDown") { e.preventDefault(); stepRow(1); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); stepRow(-1); }
   });
   function updateSelection() {
     const uids = [...state.checked].filter((u) => state.table.rows.some((r) => r.uid === u && !r.deleted));
@@ -441,29 +492,36 @@
   let detailRequest = 0;
   async function loadDetail(resetView) {
     const row = currentRow(); if (!row) return;
-    if (resetView || state.view.centre === null) { state.view.centre = row.rt; state.view.half = 0.4; }
+    // A new row is centred, the zoom (time span) stays as the user set it.
+    if (resetView || state.view.centre === null) state.view.centre = row.rt;
     const t0 = state.view.centre - state.view.half, t1 = state.view.centre + state.view.half;
     const ticket = ++detailRequest;
+    state.detailBusy = true;
     try {
       const d = await api(`/api/detail?uid=${row.uid}&t0=${t0}&t1=${t1}`);
       if (ticket !== detailRequest) return;             // a newer request is on its way
       state.detail = d; state.detail.t0 = t0; state.detail.t1 = t1;
       showDetail(resetView);
     } catch (e) { say("r-msg", e.message, "err"); }
+    finally { if (ticket === detailRequest) state.detailBusy = false; }
+  }
+
+  // ---- This shows/hides the detail panel (and switches the table to the narrower column) ----
+  function showDetailPanel(on) {
+    $("detail").hidden = !on;
+    $("res-split").classList.toggle("has-detail", on);
   }
 
   function showDetail(fresh) {
     const d = state.detail, r = d.row;
-    $("detail").hidden = false;
+    showDetailPanel(true);
     $("det-title").textContent = `Řádek ${r.label} · RT ${fmt(r.rt, 3)} min${r.ri !== null ? " · RI " + r.ri : ""} · n ${r.n}/${state.table.names.length}`;
     $("w-start").value = d.window[0].toFixed(3); $("w-end").value = d.window[1].toFixed(3);
     $("r-delete").textContent = r.deleted ? "Obnovit řádek" : "Smazat řádek (šum)";
     $("r-fill").disabled = !Object.values(r.cells).some((c) => c.v === null);
     if (fresh) $("r-note").value = r.note || "";
     $("spec-ref-title").textContent = `Referenční spektrum (nejvyšší pík řádku: ${r.ref_run})`;
-    renderLegend(); draw();
-    Plot.spectrum($("spec-ref"), d.spectrum);
-    if (state.highlight) loadSampleSpectrum(state.highlight); else clearSampleSpectrum();
+    renderLegend(); draw(); drawSpectra();
   }
 
   // ---- This is the collapsible list of samples (click = highlight + its spectrum) ----
@@ -482,18 +540,32 @@
       b.addEventListener("click", () => {
         state.highlight = state.highlight === n ? null : n;
         renderLegend(); draw();
-        if (state.highlight) loadSampleSpectrum(n); else clearSampleSpectrum();
+        // Show the clicked sample's spectrum; opening the box redraws it (toggle event).
+        if (state.highlight && !$("spectra-box").open) $("spectra-box").open = true;
+        else drawSpectra();
       });
       list.appendChild(b);
     });
   }
+  function drawSpectra() {
+    if (!state.detail || !$("spectra-box").open) return;
+    Plot.spectrum($("spec-ref"), state.detail.spectrum);
+    if (state.highlight) loadSampleSpectrum(state.highlight); else clearSampleSpectrum();
+  }
+  $("spectra-box").addEventListener("toggle", drawSpectra);
+
   async function loadSampleSpectrum(name) {
+    const uid = state.sel;
     try {
-      const s = await api(`/api/spectrum?uid=${state.sel}&sample=${encodeURIComponent(name)}`);
+      const s = await api(`/api/spectrum?uid=${uid}&sample=${encodeURIComponent(name)}`);
+      if (uid !== state.sel || name !== state.highlight) return;   // a late answer for another row/sample
       const i = state.table.names.indexOf(name), style = Plot.sampleStyles(state.table.names, state.table.groups)[i];
       $("spec-sel-title").textContent = `${name} (${s.status}) · shoda s referencí ${s.similarity.toFixed(2)}`;
       Plot.spectrum($("spec-sel"), s.spectrum, style.color);
-    } catch (e) { $("spec-sel-title").textContent = name + ": " + e.message; Plot.spectrum($("spec-sel"), null); }
+    } catch (e) {
+      if (uid !== state.sel || name !== state.highlight) return;
+      $("spec-sel-title").textContent = name + ": " + e.message; Plot.spectrum($("spec-sel"), null);
+    }
   }
   function clearSampleSpectrum() {
     $("spec-sel-title").textContent = "Vyber vzorek v seznamu „Vzorky“"; Plot.spectrum($("spec-sel"), null);
@@ -511,7 +583,7 @@
     $("yzoom-fit").classList.toggle("active", state.yzoom.fit);
   }
   $("view-mode").addEventListener("change", draw);
-  window.addEventListener("resize", () => { if (state.detail) { draw(); Plot.spectrum($("spec-ref"), state.detail.spectrum); } });
+  window.addEventListener("resize", () => { if (state.detail) { draw(); drawSpectra(); } });
 
   // ---- This is zoom and pan (buttons and mouse wheel) ----
   let zoomTimer = null;
@@ -527,7 +599,9 @@
   $("zoom-out").addEventListener("click", () => zoom(1.6));
   $("pan-left").addEventListener("click", () => { state.view.centre -= state.view.half * 0.5; loadDetail(false); });
   $("pan-right").addEventListener("click", () => { state.view.centre += state.view.half * 0.5; loadDetail(false); });
-  $("zoom-reset").addEventListener("click", () => { state.yzoom = { scale: 1, fit: false }; loadDetail(true); });
+  $("zoom-reset").addEventListener("click", () => {
+    state.yzoom = { scale: 1, fit: false }; state.view.half = 0.4; loadDetail(true);
+  });
 
   // ---- This is the height zoom: only the y axis changes, the time range stays ----
   function yzoom(factor) {

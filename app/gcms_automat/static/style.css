@@ -61,7 +61,7 @@ legend { font-weight: 600; font-size: 13px; padding: 0; margin-bottom: 4px; }
 .field small { grid-column: 1 / -1; color: var(--muted); font-size: 12px; margin-top: -3px; }
 .field.wide { grid-template-columns: 1fr; }
 .check { display: grid; grid-template-columns: 18px 1fr; gap: 6px; font-size: 13px; }
-.check small { display: block; color: var(--muted); font-size: 12px; }
+.check small { display: block; grid-column: 2; color: var(--muted); font-size: 12px; }  /* help under the label, not in the checkbox column */
 .chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .chip { display: inline-flex; gap: 4px; align-items: center; background: var(--chip); border-radius: 999px; padding: 1px 4px 1px 9px; font: 12px var(--mono); }
 .chip button { border: 0; background: none; cursor: pointer; color: var(--muted); font-size: 13px; padding: 0 4px; }
@@ -166,3 +166,21 @@ input.custom-text { width: 160px; font-family: inherit; }
 .col-hide { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0 2px; font-size: 13px; opacity: 0; }
 th:hover .col-hide, .col-hide:focus { opacity: 1; }
 .col-hide:hover { color: var(--error); }
+
+/* ---- This lays out the table and the peak detail side by side (detail stays in view) ---- */
+.res-split { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; align-items: start; }
+.res-split.has-detail { grid-template-columns: minmax(0, 2fr) minmax(640px, 3fr); }  /* detail gets 60 % */
+.res-split.has-detail .scroll { max-height: 78vh; }
+.detail-panel { position: sticky; top: 8px; max-height: calc(100vh - 16px); overflow: auto; }
+.detail-main { display: grid; grid-template-columns: minmax(0, 1fr) 150px; gap: 10px; align-items: start; }
+.detail-actions { display: grid; gap: 6px; align-content: start; }
+.detail-actions .btn { width: 100%; }
+.detail-actions input.note-input { width: 100%; }
+.detail-actions input.num-input { width: 72px; }
+.row.nowrap { flex-wrap: nowrap; }
+@media (max-width: 1650px) {
+  /* Narrower screens: detail above the table (not side by side, not sticky). */
+  .res-split.has-detail { grid-template-columns: minmax(0, 1fr); }
+  .res-split.has-detail .detail-panel { order: -1; position: static; max-height: none; }
+  .res-split.has-detail .scroll { max-height: 45vh; }   /* table scrolls in its own box under the detail */
+}
