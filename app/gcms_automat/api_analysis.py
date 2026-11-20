@@ -216,7 +216,7 @@ def create_blueprint(session: Session, exports_dir: Path = EXPORTS_DIR) -> Bluep
     @bp.get("/api/download")
     def download():
         name = request.args.get("name", "")
-        if not name or name != Path(name).name or not (exports_dir / name).is_file():
+        if not name or name != Path(name).name or name.endswith(".part") or not (exports_dir / name).is_file():
             return jsonify(ok=False, error="Soubor nenalezen."), 404
         return send_from_directory(exports_dir, name, as_attachment=True)
 

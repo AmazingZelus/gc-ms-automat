@@ -30,6 +30,7 @@ from openpyxl.utils import get_column_letter
 from . import APP_NAME, __version__
 from .analysis.params import PARAMETERS, AnalysisParams
 from .analysis.retention import Alkane
+from .analysis.signal import REFERENCE_SCAN_S
 from .analysis.table import STATUS_LABELS, Analysis, Row, replicate_group, view_filter
 from .export import library_versions, unique_path
 
@@ -95,7 +96,8 @@ def methods_table(params: AnalysisParams) -> list[tuple[str, str, str, str]]:
     return [
         ("Formát dat", "ANDI-MS / AIA netCDF (ASTM E2077)", "scipy.io.netcdf_file", ""),
         ("Baseline chromatogramu", "asymmetrically reweighted penalized least squares (arPLS)",
-         f"pybaselines Baseline.arpls, lambda = 10^{params.baseline_log_lambda:g} (scaled to scan interval)",
+         f"pybaselines Baseline.arpls (diff_order 2), lambda = 10^{params.baseline_log_lambda:g} × "
+         f"({REFERENCE_SCAN_S:g} s / scan interval)^4",
          "Baek S.-J., Park A., Ahn Y.-J., Choo J. (2015) Analyst 140, 250–257"),
         ("Vyhlazení", "Savitzky–Golay filter (2nd order polynomial)",
          f"scipy.signal.savgol_filter, {params.smooth_points} points",
@@ -113,7 +115,15 @@ def methods_table(params: AnalysisParams) -> list[tuple[str, str, str, str]]:
         ("Výpočet plochy", "trapezoidal rule (numerical integration)",
          "scipy.integrate.trapezoid; area in counts × s on the baseline-corrected TIC", ""),
         ("Spektrum píku", "apex spectrum (mean of 3 scans) with background subtraction",
-         f"this application; background {params.spectrum_background_scans} scans each side", ""),
+         f"this application; background = mean of the window edge scan + {params.spectrum_background_scans} "
+         "scans outside it, on each side", ""),
+        ("Odstranění šumu CO₂", "rule-based filter" if params.co2_filter else "off",
+         f"rows whose base ion is m/z 44 with fewer than {params.co2_min_other_ions} other ions above "
+         f"{params.co2_ion_pct:g} % are removed" if params.co2_filter else "", ""),
+        ("Dointegrace chybějící paralelky", "gap filling in the replicate's window" if params.fill_replicates else "off",
+         f"this application; area only if apex inside the window, S/N >= {params.fill_min_snr:g} and spectral "
+         f"similarity >= {params.fill_min_similarity:g} (marked 'dointegrováno' on the provenance sheet)"
+         if params.fill_replicates else "", ""),
         ("Shoda spekter", "weighted cosine similarity (dot product)",
          f"intensity^{params.weight_intensity_power:g} × (m/z)^{params.weight_mz_power:g}",
          "váhy: TODO ověřit zdroj (Stein S. E., Scott D. R. (1994) J. Am. Soc. Mass Spectrom. 5, 859–866 studují váhy tohoto typu)"),
@@ -414,6 +424,9 @@ def save_workbook(wb: Workbook, folder: Path, now: datetime | None = None) -> Pa
     stamp = (now or datetime.now()).strftime("%Y%m%d_%H%M%S")
     path = unique_path(folder, f"GC-MS_vysledky_{stamp}", ".xlsx")
     temp = path.with_suffix(".xlsx.part")
-    wb.save(temp)
-    os.replace(temp, path)
+    try:
+        wb.save(temp)
+        os.replace(temp, path)
+    finally:
+        temp.unlink(missing_ok=True)   # never leave half a file behind (e.g. disk full)
     return path
