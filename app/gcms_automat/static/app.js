@@ -100,6 +100,6 @@ window.addEventListener("pageshow", (event) => { if (event.persisted) sendHeartb
 // When the user comes back to this tab (e.g. after sleep), check the connection at once.
 document.addEventListener("visibilitychange", () => { if (!document.hidden) sendHeartbeat(); });
 
-window.App = { api };
+window.App = { api, token: TOKEN };
 sendHeartbeat();
 setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);

@@ -17,7 +17,10 @@ app/main.py                   start serveru: volný port, token, prohlížeč, w
 app/gcms_automat/__init__.py  JEDINÉ místo s názvem a verzí (APP_NAME, __version__)
 app/gcms_automat/server.py    Flask: UI + JSON API (/api/...), CSP, kontrola tokenu a Host
 app/gcms_automat/lifecycle.py kdy se server ukončí (heartbeat, zavření karty, Ukončit)
-app/gcms_automat/export.py    VŠECHNY exporty jdou přes write_csv_export() (hlavička s verzí)
+app/gcms_automat/export.py    CSV exporty přes write_csv_export() (hlavička s verzí)
+app/gcms_automat/xlsx_export.py  export výsledků do Excelu: list „Info“ (verze, čas, soubory, alkany, VŠECHNY
+                              parametry, metody integrace se std. anglickými názvy a citacemi, knihovny),
+                              listy ploch (ND/0/prázdné/vlastní text), průměry paralelek, „Původ hodnot“
 app/gcms_automat/paths.py     složky; vše se zapisuje jen do složky aplikace
 app/gcms_automat/analysis/    VÝPOČTY (bez webového kódu): cdf.py čtení AIA, signal.py baseline/píky/integrace,
                               spectra.py spektra a shoda, align.py zarovnání, retention.py RI a alkany,
@@ -38,7 +41,7 @@ Proč takto: Flask + waitress + čisté HTML/JS je nejjednodušší spolehlivá 
 1. **Úplně offline.** Žádné CDN, webové fonty, analytika, kontroly aktualizací ani jakékoli síťové požadavky za běhu. Každá JS/CSS knihovna se přibalí do `app/gcms_automat/static/vendor/` i s licencí. CSP hlavička v `server.py` musí zůstat `'self'`. Server poslouchá jen na `127.0.0.1`.
 2. **Zapisuje se jen do složky aplikace** (`exporty/`, `logs/`, `runtime/`). Nic do `%APPDATA%`, registru ani domovské složky.
 3. **Jen zavedené, citovatelné knihovny** (numpy, scipy, pandas, statsmodels, scikit-learn…). Žádné vlastní implementace statistiky ani standardních algoritmů (fitování, integrace, vyhlazování, PCA, regrese…). Novou knihovnu přidej do `requirements/runtime.in`, spusť `python tools/make_lock.py` a v commitu zdůvodni proč. Musí mít wheel pro Windows a Python 3.14.
-4. **Verze v exportech.** Verze je definovaná jen v `app/gcms_automat/__init__.py`. Každý export (CSV, XLSX, PDF, obrázek…) musí obsahovat název aplikace, verzi a datum a čas zpracování s časovou zónou. CSV vždy přes `write_csv_export()`. Nový formát exportu dostane obdobnou hlavičku nebo metadata a test, který to ověří.
+4. **Verze v exportech.** Verze je definovaná jen v `app/gcms_automat/__init__.py`. Každý export (CSV, XLSX, PDF, obrázek…) musí obsahovat název aplikace, verzi a datum a čas zpracování s časovou zónou. CSV vždy přes `write_csv_export()`, XLSX přes `xlsx_export.build_workbook()` (list „Info“). Při nové metodě výpočtu doplň řádek do `methods_table()` (standardní anglický název + citace, jen ověřená). Nový formát exportu dostane obdobnou hlavičku nebo metadata a test, který to ověří.
 5. **Testy výpočtů na syntetických datech se známým výsledkem.** Každá výpočetní funkce má test v `tests/` na vygenerovaných datech, kde výsledek známe předem (např. Gaussův pík se známou plochou, přímka se známou směrnicí). Uveď toleranci a proč je taková. Testy nesmí potřebovat skutečná měřená data ani internet.
 6. **Komentář se vzorcem a jednotkami u každého výpočtu.** Např. `# Resolution R = 2 (t2 - t1) / (w1 + w2); t in min, w = baseline peak width in min`. U převzaté metody uveď zdroj (dokumentace knihovny, norma nebo publikace). **Citace si nikdy nevymýšlej.** Pokud si zdrojem nejsi jistý, napiš `TODO: ověřit zdroj` a řekni to uživatelce.
 7. **Žádné vymyšlené konstanty.** Každý parametr, který ovlivňuje výsledek (práh šumu, okno vyhlazování, tolerance RT…), je nastavitelný v UI. Má výchozí hodnotu, jednotku a krátké české vysvětlení, co dělá a jak ho zvolit. Výchozí hodnotu zdůvodni v komentáři (zdroj nebo úvaha). Použité hodnoty parametrů se zapisují do hlavičky exportu.
@@ -80,6 +83,8 @@ Proč takto: Flask + waitress + čisté HTML/JS je nejjednodušší spolehlivá 
 - Práh výšky (% největšího píku) se počítá jen uvnitř vyhodnocovaného RT rozsahu.
 - **Alkany automaticky:** M⁺ po odečtení izotopu ¹³C fragmentu na 14n+1. Alkany se slabým M⁺ se NEodhadují, uživatel je doplní.
 - **Váhy shody spekter** (intenzita^0,5 × m/z^1): `TODO: ověřit zdroj` (Stein & Scott 1994).
+- **Shoda spekter v tabulce** = nejhorší shoda mezi vzorky, kde má řádek plochu (ND se nepočítá).
+- **Průměry paralelek** (export): jen když je látka ve VŠECH paralelkách skupiny, jinak chybějící (pravidlo uživatelky). SD výběrová (n − 1).
 - Testy obsahují i chvostující píky (EMG), shluky na driftující baseline, malé píky vedle velkých a náhodné sekvence úprav (fuzz test, že se okna nikdy nepřekryjí). Při změně metody tyhle testy nesmí povolit.
 
 ## Známá omezení ukončování (vyřešit, než aplikace začne držet data v paměti)

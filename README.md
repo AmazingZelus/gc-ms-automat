@@ -2,7 +2,7 @@
 
 Aplikace pro zpracování dat z GC-MS. Běží na vašem počítači, **nic se neinstaluje** a **funguje úplně bez internetu**. Ovládá se v prohlížeči, ale data nikam neodcházejí.
 
-> **Stav (verze 0.2):** načtení CDF, zarovnání píků, integrace, RI a tabulka výsledků s ručními úpravami. Export do Excelu přijde ve verzi 0.3.
+> **Stav (verze 0.3):** načtení CDF, zarovnání píků, integrace, RI, tabulka výsledků s ručními úpravami a export do Excelu.
 
 ## Co potřebujete
 
@@ -67,7 +67,14 @@ Pokud zdroji nevěříte, zdrojový kód je celý veřejně v tomto repozitáři
 - **Pozor na malý pík těsně za velkým chvostujícím píkem:** zatím dostane i ocas velkého píku pod sebou (plocha až asi 2×). Zkontroluj ho v grafu. Lepší metoda („tangent skim“) přijde v další verzi.
 - Saturovaný pík (plochý vrchol) se může rozpadnout na víc řádků: spoj je tlačítkem *Sloučit vybrané*.
 
-**Výsledek je jen v paměti:** zavřením aplikace nebo novým *Vyhodnotit* se ruční úpravy ztratí (aplikace se předtím zeptá). Export do Excelu přijde ve verzi 0.3.
+6. **Export do Excelu** (karta 5): zaškrtni, co chceš, a klikni na *Exportovat do Excelu*. Soubor se uloží do složky `exporty` a zároveň stáhne.
+   - **Info** (vždy první list): verze programu, datum a čas, soubory, alkany, všechna nastavení, použité metody integrace (standardní anglické názvy a citace) a verze knihoven.
+   - **Plochy**: jeden list pro každé označení chybějící hodnoty (ND, 0, prázdná buňka, vlastní text, např. `<LOQ`).
+   - **Průměry paralelek**: průměry, průměr ± SD, nebo průměr a SD ve zvláštních sloupcích. Průměr je jen tam, kde je látka ve všech paralelkách. SD je výběrová (n − 1).
+   - **Původ hodnot**: u každé buňky okno integrace, S/N a shoda spektra, pro kontrolu a validaci.
+7. **Skrytí sloupce:** najeď myší na záhlaví sloupce a klikni na ×. Tlačítko *Zobrazit skryté sloupce* je vrátí.
+
+**Výsledek je jen v paměti:** zavřením aplikace nebo novým *Vyhodnotit* se ruční úpravy ztratí (aplikace se předtím zeptá). Před zavřením si výsledek vyexportuj.
 
 ## 6. Ukončení
 

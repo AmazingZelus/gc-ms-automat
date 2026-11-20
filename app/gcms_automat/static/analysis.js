@@ -12,6 +12,7 @@
   const state = {
     meta: [], params: {}, files: [], alkanes: [], table: null,
     sel: null, checked: new Set(), detail: null,
+    hiddenCols: new Set(), exportFile: null,
     view: { centre: null, half: 0.4 }, yzoom: { scale: 1, fit: false }, highlight: null, split: null, drag: null, geom: null,
   };
 
@@ -278,7 +279,7 @@
   // ================================================================ table
   function setTable(table) {
     state.table = table;
-    $("res-empty").hidden = true; $("res-body").hidden = false;
+    $("res-empty").hidden = true; $("res-body").hidden = false; $("export-card").hidden = false;
     $("dirty").hidden = !table.dirty;
     renderSummary(); renderTable();
     if (state.sel !== null && table.rows.some((r) => r.uid === state.sel)) loadDetail(false);
@@ -297,34 +298,74 @@
   }
 
   // ---- This draws the result table (column order as agreed) ----
+  // ---- This describes the table columns (key, header, cell); any can be hidden ----
+  function tableColumns(t) {
+    const cols = [
+      { key: "id", head: "ID", cls: "num", cell: (r) => esc(r.label) },
+      { key: "rt", head: "RT [min]", cls: "num", cell: (r) => fmt(r.rt, 3) },
+      { key: "ri", head: "RI", cls: "num", cell: (r) => r.ri ?? "" },
+      { key: "ions", head: "Top ionty m/z (rel. %)", cls: "mono", cell: (r) => esc(r.ions) },
+      { key: "sim", head: "Shoda spekter", cls: "num sim", cell: (r) => fmt(r.sim_min, 2),
+        title: "Nejhorší shoda spektra některého vzorku s referenčním spektrem řádku (1 = stejné spektrum; ND vzorky se nepočítají)" },
+      { key: "n", head: `n (z ${t.names.length})`, cls: "num", cell: (r) => r.n },
+      { key: "note", head: "Poznámka", cls: "", cell: notesCell },
+    ];
+    for (const n of t.names) {
+      cols.push({ key: "s:" + n, head: n, cls: "num", sample: n, cell: (r) => {
+        const c = r.cells[n];
+        return c.v === null ? "ND" : fmtArea.format(c.v);
+      } });
+    }
+    return cols;
+  }
+  function notesCell(r) {
+    const pills = [];
+    if (r.hidden) pills.push(`<span class="pill">${esc(r.hidden)}</span>`);
+    r.auto_notes.forEach((n) => pills.push(`<span class="pill warn">${esc(n)}</span>`));
+    if (r.edits.length) pills.push(`<span class="pill" title="${esc(r.edits.join("; "))}">upraveno</span>`);
+    return pills.join("") + esc(r.note);
+  }
+
+  // ---- This draws the result table (column order as agreed; hidden columns left out) ----
   function renderTable() {
     const t = state.table, showHidden = $("show-hidden").checked;
-    let html = `<thead><tr><th><span class="help">✓</span></th><th class="num">ID</th><th class="num">RT [min]</th><th class="num">RI</th>
-      <th>Top ionty m/z (rel. %)</th><th class="num" title="Nejhorší shoda spektra některého vzorku s referenčním spektrem řádku (1 = stejné spektrum)">Shoda spekter</th><th class="num">n (z ${t.names.length})</th><th>Poznámka</th>`;
-    html += t.names.map((n) => `<th class="num">${esc(n)}</th>`).join("") + "</tr></thead><tbody>";
+    const cols = tableColumns(t).filter((c) => !state.hiddenCols.has(c.key));
+    let html = `<thead><tr><th><span class="help">✓</span></th>`;
+    html += cols.map((c) => `<th class="${c.cls.includes("num") ? "num" : ""}"${c.title ? ` title="${esc(c.title)}"` : ""}>` +
+      `<span class="col-head">${esc(c.head)}<button type="button" class="col-hide" data-col="${esc(c.key)}" ` +
+      `title="Skrýt sloupec" aria-label="Skrýt sloupec ${esc(c.head)}">×</button></span></th>`).join("");
+    html += "</tr></thead><tbody>";
     for (const r of t.rows) {
       if (r.hidden && !showHidden) continue;
       const cls = [r.uid === state.sel ? "sel" : "", r.poor && !r.hidden ? "poor" : "", r.hidden ? "hidden-row" : ""].join(" ");
-      const pills = [];
-      if (r.hidden) pills.push(`<span class="pill">${esc(r.hidden)}</span>`);
-      r.auto_notes.forEach((n) => pills.push(`<span class="pill warn">${esc(n)}</span>`));
-      if (r.edits.length) pills.push(`<span class="pill" title="${esc(r.edits.join("; "))}">upraveno</span>`);
       html += `<tr data-uid="${r.uid}" class="${cls}"><td><input type="checkbox" aria-label="Vybrat řádek ${esc(r.label)}"
-        ${state.checked.has(r.uid) ? "checked" : ""} ${r.deleted ? "disabled" : ""}></td>
-        <td class="num">${esc(r.label)}</td><td class="num">${fmt(r.rt, 3)}</td><td class="num">${r.ri ?? ""}</td>
-        <td class="mono">${esc(r.ions)}</td><td class="num sim">${fmt(r.sim_min, 2)}</td><td class="num">${r.n}</td>
-        <td>${pills.join("")}${esc(r.note)}</td>`;
-      for (const n of t.names) {
-        const c = r.cells[n];
-        const kind = c.v === null ? "nd" : c.s === "fill" ? "fill" : c.s === "man" ? "man" : "";
-        html += `<td class="num ${kind}" title="${esc(c.title)}">${c.v === null ? "ND" : fmtArea.format(c.v)}</td>`;
+        ${state.checked.has(r.uid) ? "checked" : ""} ${r.deleted ? "disabled" : ""}></td>`;
+      for (const c of cols) {
+        if (c.sample) {
+          const cell = r.cells[c.sample];
+          const kind = cell.v === null ? "nd" : cell.s === "fill" ? "fill" : cell.s === "man" ? "man" : "";
+          html += `<td class="num ${kind}" title="${esc(cell.title)}">${c.cell(r)}</td>`;
+        } else {
+          html += `<td class="${c.cls}">${c.cell(r)}</td>`;
+        }
       }
       html += "</tr>";
     }
     $("results").innerHTML = html + "</tbody>";
     $("undo").disabled = !t.can_undo;
+    const nHidden = state.hiddenCols.size;
+    $("show-cols").hidden = nHidden === 0;
+    $("show-cols").textContent = `Zobrazit skryté sloupce (${nHidden})`;
     updateSelection();
   }
+
+  // ---- This hides a column (× in its header) or shows all hidden columns again ----
+  $("results").addEventListener("click", (e) => {
+    const btn = e.target.closest("button.col-hide"); if (!btn) return;
+    e.stopPropagation();
+    state.hiddenCols.add(btn.dataset.col); renderTable();
+  }, true);
+  $("show-cols").addEventListener("click", () => { state.hiddenCols.clear(); renderTable(); });
   $("show-hidden").addEventListener("change", renderTable);
 
   // ---- This handles clicks in the table: checkbox = select for merge, row = detail ----
@@ -553,6 +594,41 @@
       if (st.has_result) await refreshTable();
     } catch (e) { setTimeout(start, 1000); }   // server not reachable yet: try again
   }
+  // ================================================================ export
+  // ---- This shows the custom-text box only when "vlastní text" is used ----
+  function updateExportForm() {
+    const custom = $("ex-custom").checked || $("ex-mean-missing").value === "custom";
+    $("ex-custom-text").disabled = !custom;
+  }
+  ["ex-custom", "ex-mean-missing"].forEach((id) => $(id).addEventListener("change", updateExportForm));
+
+  // ---- This is the Export button: writes the .xlsx and downloads it ----
+  $("ex-run").addEventListener("click", async () => {
+    const checked = (sel) => [...document.querySelectorAll(sel)].filter((x) => x.checked).map((x) => x.value);
+    const options = {
+      markers: checked("input[name=ex-marker]"), custom_text: $("ex-custom-text").value,
+      mean_formats: checked("input[name=ex-mean]"), mean_missing: $("ex-mean-missing").value,
+      only_visible: $("ex-visible").checked, provenance: $("ex-provenance").checked,
+    };
+    const btn = $("ex-run"); btn.disabled = true; say("ex-status", "Exportuji…");
+    try {
+      const r = await api("/api/export", { options });
+      state.exportFile = r.filename;
+      download(r.filename);
+      say("ex-status", `Uloženo do složky exporty: ${r.filename}. Stažení se spustilo.`, "ok");
+      $("ex-again").hidden = false;
+    } catch (e) { say("ex-status", e.message, "err"); }
+    finally { btn.disabled = false; }
+  });
+  $("ex-again").addEventListener("click", () => { if (state.exportFile) download(state.exportFile); });
+  function download(name) {
+    // The token travels in the address (a plain link cannot send headers).
+    const a = document.createElement("a");
+    a.href = `/api/download?name=${encodeURIComponent(name)}&token=${encodeURIComponent(window.App.token)}`;
+    a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  }
+  updateExportForm();
+
   // ---- This asks before the tab is closed while there is a result (work in memory) ----
   window.addEventListener("beforeunload", (e) => {
     // (not after Ukončit / when the app is gone: then there is nothing left to keep)

@@ -108,3 +108,21 @@ def test_upload_of_non_cdf_reports_error(client):
     data = {"files": [(io.BytesIO(b"nonsense"), "bad.CDF")]}
     r = client.post("/api/files", base_url=BASE, headers=H, data=data, content_type="multipart/form-data")
     assert r.json["errors"] and "bad.CDF" in r.json["errors"][0]
+
+
+def test_export_and_download(client):
+    post(client, "/api/run", {"params": {}})
+    r = post(client, "/api/export", {"options": {"markers": ["nd", "custom"], "custom_text": "<LOQ",
+                                                 "mean_formats": ["mean"]}})
+    assert r.json["ok"] and r.json["filename"].endswith(".xlsx")
+    d = client.get(f"/api/download?name={r.json['filename']}", base_url=BASE, headers=H)
+    assert d.status_code == 200 and d.data[:2] == b"PK"          # an .xlsx is a ZIP file
+    # Only plain file names from the exports folder can be downloaded.
+    bad = client.get("/api/download?name=../app/main.py", base_url=BASE, headers=H)
+    assert bad.status_code == 404
+
+
+def test_export_with_invalid_options_explains(client):
+    post(client, "/api/run", {"params": {}})
+    r = post(client, "/api/export", {"options": {"markers": ["custom"], "custom_text": ""}})
+    assert r.status_code == 400 and "Vlastní text" in r.json["error"]

@@ -45,7 +45,7 @@ def create_app(token: str, tracker: ClientTracker, port: int, exports_dir=EXPORT
     app.config["MAX_CONTENT_LENGTH"] = 2 * 1024 ** 3
     from .api_analysis import create_blueprint
     session = session or Session()
-    app.register_blueprint(create_blueprint(session))
+    app.register_blueprint(create_blueprint(session, exports_dir))
     allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
 
     # ---- This checks every request: correct Host, and the token for the API ----

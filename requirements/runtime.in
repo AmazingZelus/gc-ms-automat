@@ -12,3 +12,5 @@ waitress==3.0.2
 wrapt==2.5.2
 # Baseline correction (arPLS). Cite as given in the pybaselines documentation (D. Erb).
 pybaselines==1.2.1
+# Excel export (.xlsx) of the result table.
+openpyxl==3.1.5

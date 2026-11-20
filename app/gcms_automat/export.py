@@ -18,7 +18,7 @@ from . import APP_NAME, __version__
 
 # This lists the scientific libraries whose versions are written into each export.
 # Library versions matter for reproducibility (results can change between versions).
-RECORDED_LIBRARIES = ("numpy", "scipy", "pandas", "statsmodels", "scikit-learn", "pybaselines")
+RECORDED_LIBRARIES = ("numpy", "scipy", "pandas", "statsmodels", "scikit-learn", "pybaselines", "openpyxl")
 
 
 @dataclass(frozen=True)

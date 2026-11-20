@@ -156,3 +156,13 @@ details.hint > p { color: var(--muted); font-size: 12.5px; margin: 4px 0 0; }
 .help-toggle[aria-expanded="true"], .help-toggle:hover { border-color: var(--primary); color: var(--primary); }
 .zoom-label { color: var(--muted); font-size: 12px; margin-left: 6px; }
 .btn.active { background: var(--chip); border-color: var(--primary); color: var(--primary); }
+
+/* ---- This styles the export card and the column hide buttons ---- */
+.export-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px 20px; }
+.export-grid fieldset { display: grid; gap: 6px; align-content: start; }
+.export-grid legend { font-size: 13px; }
+input.custom-text { width: 160px; font-family: inherit; }
+.col-head { display: inline-flex; align-items: center; gap: 4px; }
+.col-hide { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0 2px; font-size: 13px; opacity: 0; }
+th:hover .col-hide, .col-hide:focus { opacity: 1; }
+.col-hide:hover { color: var(--error); }

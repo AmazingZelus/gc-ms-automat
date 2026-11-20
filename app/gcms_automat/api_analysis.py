@@ -9,14 +9,18 @@ from __future__ import annotations
 import math
 from functools import wraps
 
-from flask import Blueprint, jsonify, request
+from pathlib import Path
+
+from flask import Blueprint, jsonify, request, send_from_directory
 
 from .analysis.params import PARAMETERS, AnalysisParams
 from .analysis.table import EditError
+from .paths import EXPORTS_DIR
 from .session import ROLES, Session
+from .xlsx_export import ExportOptions, build_workbook, save_workbook
 
 
-def create_blueprint(session: Session) -> Blueprint:
+def create_blueprint(session: Session, exports_dir: Path = EXPORTS_DIR) -> Blueprint:
     bp = Blueprint("analysis", __name__)
 
     # ---- This wraps handlers: lock, JSON body, user-facing errors ----
@@ -180,6 +184,40 @@ def create_blueprint(session: Session) -> Blueprint:
         else:
             raise EditError("Neznámá úprava.")
         return {"message": message, "focus": focus, "table": session.table_json()}
+
+    # ---- Excel export of the current result ----
+    @bp.post("/api/export")
+    @handler
+    def export(body):
+        a = session.require()
+        raw = body.get("options") or {}
+        options = ExportOptions(
+            markers=[str(x) for x in raw.get("markers", [])] if isinstance(raw.get("markers"), list) else [],
+            custom_text=str(raw.get("custom_text", ""))[:200],
+            mean_formats=[str(x) for x in raw.get("mean_formats", [])] if isinstance(raw.get("mean_formats"), list) else [],
+            mean_missing=str(raw.get("mean_missing", "nd")),
+            only_visible=raw.get("only_visible", True) is not False,
+            provenance=raw.get("provenance", True) is not False,
+        )
+        try:
+            options.validate()
+        except ValueError as exc:
+            raise EditError(str(exc)) from exc
+        workbook = build_workbook(a, session.params, session.alkanes,
+                                  [{"name": f["name"], "role": f["role"]} for f in session.files_json()], options)
+        try:
+            path = save_workbook(workbook, exports_dir)
+        except OSError as exc:
+            raise EditError(f"Soubor nejde uložit do složky exporty ({exc}). Není složka jen pro čtení?") from exc
+        return {"filename": path.name, "path": str(path)}
+
+    # ---- Download of a file from the exports folder (plain file name only) ----
+    @bp.get("/api/download")
+    def download():
+        name = request.args.get("name", "")
+        if not name or name != Path(name).name or not (exports_dir / name).is_file():
+            return jsonify(ok=False, error="Soubor nenalezen."), 404
+        return send_from_directory(exports_dir, name, as_attachment=True)
 
     @bp.post("/api/undo")
     @handler

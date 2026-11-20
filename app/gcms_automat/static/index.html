@@ -142,7 +142,8 @@
             <span id="sel-info" class="help">Zaškrtni řádky pro sloučení.</span>
             <button id="merge" class="btn" type="button" disabled>Sloučit vybrané</button>
             <button id="undo" class="btn" type="button" disabled>Zpět</button>
-            <label class="check-inline"><input id="show-hidden" type="checkbox"> Ukázat skryté</label>
+            <label class="check-inline"><input id="show-hidden" type="checkbox"> Ukázat skryté řádky</label>
+            <button id="show-cols" class="btn" type="button" hidden>Zobrazit skryté sloupce</button>
           </div>
           <details class="hint"><summary>Nápověda k tabulce</summary>
             <p>Klikni na řádek pro chromatogramy a spektrum; najetím na buňku uvidíš okno, S/N a shodu spektra.
@@ -150,6 +151,45 @@
             Červeně podbarvené = špatná shoda spekter napříč vzorky. Kurzíva = dointegrováno, modře = ruční okno.</p></details>
           <div class="scroll"><table id="results"></table></div>
         </div>
+      </section>
+
+      <!-- This is the Excel export: what to include, then one button. -->
+      <section class="card" id="export-card" hidden>
+        <h2><span class="num">5</span>Export do Excelu</h2>
+        <div class="export-grid">
+          <fieldset>
+            <legend>Listy s plochami – chybějící hodnotu označit jako</legend>
+            <label class="check-inline"><input type="checkbox" name="ex-marker" value="nd" checked> ND</label>
+            <label class="check-inline"><input type="checkbox" name="ex-marker" value="zero"> 0</label>
+            <label class="check-inline"><input type="checkbox" name="ex-marker" value="blank"> prázdná buňka</label>
+            <label class="check-inline"><input type="checkbox" name="ex-marker" value="custom" id="ex-custom"> vlastní text:</label>
+            <input id="ex-custom-text" type="text" maxlength="20" placeholder="např. <LOQ" class="custom-text">
+          </fieldset>
+          <fieldset>
+            <legend>Průměry paralelek (vzorek_1_a + vzorek_1_b)</legend>
+            <label class="check-inline"><input type="checkbox" name="ex-mean" value="mean"> průměry</label>
+            <label class="check-inline"><input type="checkbox" name="ex-mean" value="mean_pm_sd"> průměr ± SD</label>
+            <label class="check-inline"><input type="checkbox" name="ex-mean" value="mean_sd_columns"> průměr a SD ve zvláštních sloupcích</label>
+            <label class="check-inline">chybějící průměr:
+              <select id="ex-mean-missing"><option value="nd">ND</option><option value="zero">0</option>
+                <option value="blank">prázdná buňka</option><option value="custom">vlastní text</option></select></label>
+          </fieldset>
+          <fieldset>
+            <legend>Další</legend>
+            <label class="check-inline"><input type="checkbox" id="ex-visible" checked> jen řádky viditelné v tabulce (podle filtrů)</label>
+            <label class="check-inline"><input type="checkbox" id="ex-provenance" checked> list „Původ hodnot“ (okna, S/N, shoda – pro kontrolu)</label>
+          </fieldset>
+        </div>
+        <details class="hint"><summary>Nápověda</summary>
+          <p>Každé označení chybějící hodnoty dostane vlastní list. První list „Info“ je vždy: verze programu, datum a čas,
+          soubory, alkany, všechna nastavení, použité metody integrace se standardními anglickými názvy a citacemi,
+          a verze knihoven. Průměr se spočítá jen tehdy, když je látka ve všech paralelkách; jinak je označen jako
+          chybějící. SD je výběrová (n − 1). U „průměr ± SD“ je SD zaokrouhlena na 2 platné číslice a průměr na stejné místo.</p></details>
+        <div class="row">
+          <button id="ex-run" class="btn btn-primary" type="button">Exportovat do Excelu</button>
+          <button id="ex-again" class="btn btn-link" type="button" hidden>Stáhnout znovu</button>
+        </div>
+        <p id="ex-status" class="status" role="status"></p>
       </section>
 
       <!-- This shows versions of Python and the scientific libraries (for citing). -->
